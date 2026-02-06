@@ -43,6 +43,11 @@ class CustomUserManager(BaseUserManager):
         else:
             user.set_unusable_password()
 
+        # Grant admin access based on role
+        if extra_fields.get('role') in [UserRole.SUPER_ADMIN, UserRole.SHOP_ADMIN]:
+            user.is_staff = True
+            user.is_active = True
+
         user.save(using=self._db)
         return user
     
