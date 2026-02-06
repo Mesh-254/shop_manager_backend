@@ -13,6 +13,9 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 from pathlib import Path
 from dotenv import load_dotenv  # type: ignore
 import os
+from django.urls import reverse_lazy
+from django.utils.translation import gettext_lazy as _
+from django.templatetags.static import static
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -35,6 +38,10 @@ ALLOWED_HOSTS = []
 # Application definition
 
 INSTALLED_APPS = [
+    'unfold',
+    "unfold.contrib.filters",       # Optional but recommended
+    "unfold.contrib.forms",         # Optional
+    "unfold.contrib.inlines",
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -175,4 +182,112 @@ SIMPLE_JWT = {
 
     'USER_ID_FIELD': 'id',
     'USER_ID_CLAIM': 'user_id',
+}
+
+
+
+UNFOLD = {
+    "SITE_TITLE": "Car Parts Stock Manager",
+    "SITE_HEADER": "Shop Admin Dashboard",
+    "SITE_URL": "/",
+    "SITE_SYMBOL": "precision_manufacturing",
+    "SHOW_HISTORY": True,
+    "SHOW_VIEW_ON_SITE": True,
+    "DASHBOARD_CALLBACK": "backend.utils.dashboard.dashboard_callback",
+    "COLORS": {
+        "primary": {
+            "50": "#f0f9ff",
+            "100": "#e0f2fe",
+            "500": "#0ea5e9",
+            "600": "#0284c7",
+            "900": "#0c4a6e",
+        },
+    },
+    "SIDEBAR": {
+        "show_search": True,
+        "show_all_applications": False,
+        "navigation": [
+            {
+                "title": _("Shop & Users"),
+                "icon": "storefront",
+                "items": [
+                    {
+                        "title": _("My Shop"),
+                        "icon": "store",
+                        "link": reverse_lazy("admin:shop_manager_shop_changelist"),
+                    },
+                    {
+                        "title": _("Users & Cashiers"),
+                        "icon": "people",
+                        "link": reverse_lazy("admin:accounts_user_changelist"),
+                        "permission": lambda r: r.user.role in ['SuperAdmin', 'ShopAdmin'],
+                    },
+                    {
+                        "title": _("Subscription Plans"),
+                        "icon": "subscriptions",
+                        "link": reverse_lazy("admin:shop_manager_subscriptionplan_changelist"),
+                        "permission": lambda r: r.user.role == 'SuperAdmin',
+                    },
+                ],
+            },
+            {
+                "title": _("Inventory Management"),
+                "icon": "inventory_2",
+                "items": [
+                    {
+                        "title": _("Categories"),
+                        "icon": "category",
+                        "link": reverse_lazy("admin:shop_manager_category_changelist"),
+                    },
+                    {
+                        "title": _("Suppliers"),
+                        "icon": "local_shipping",
+                        "link": reverse_lazy("admin:shop_manager_supplier_changelist"),
+                    },
+                    {
+                        "title": _("Products"),
+                        "icon": "precision_manufacturing",
+                        "link": reverse_lazy("admin:shop_manager_product_changelist"),
+                    },
+                    {
+                        "title": _("Current Stock"),
+                        "icon": "warehouse",
+                        "link": reverse_lazy("admin:shop_manager_stock_changelist"),
+                    },
+                ],
+            },
+            {
+                "title": _("Transactions"),
+                "icon": "swap_horiz",
+                "items": [
+                    {
+                        "title": _("Purchases"),
+                        "icon": "shopping_cart",
+                        "link": reverse_lazy("admin:shop_manager_purchase_changelist"),
+                    },
+                    {
+                        "title": _("Sales"),
+                        "icon": "point_of_sale",
+                        "link": reverse_lazy("admin:shop_manager_sale_changelist"),
+                    },
+                    {
+                        "title": _("Expenses"),
+                        "icon": "receipt_long",
+                        "link": reverse_lazy("admin:shop_manager_expense_changelist"),
+                    },
+                ],
+            },
+            {
+                "title": _("Reports & Logs"),
+                "icon": "analytics",
+                "items": [
+                    {
+                        "title": _("Offline Sync Logs"),
+                        "icon": "sync",
+                        "link": reverse_lazy("admin:shop_manager_offlinesynclog_changelist"),
+                    },
+                ],
+            },
+        ],
+    },
 }
