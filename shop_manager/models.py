@@ -21,20 +21,29 @@ class SubscriptionPlan(models.Model):
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     name = models.CharField(
-        max_length=100, unique=True, choices=PlanType.choices,
-        help_text="The name of the subscription plan.")
+        max_length=100,
+        unique=True,
+        choices=PlanType.choices,
+        help_text="The name of the subscription plan.",
+    )
     price_per_month = models.DecimalField(
-        max_digits=10, decimal_places=2, help_text="The monthly price of the plan.")
+        max_digits=10, decimal_places=2, help_text="The monthly price of the plan."
+    )
     user_limit = models.IntegerField(
-        help_text="Maximum number of users allowed on this plan per shop.")
+        help_text="Maximum number of users allowed on this plan per shop."
+    )
     product_limit = models.IntegerField(
-        help_text="Maximum number of products allowed in the shop.")
+        help_text="Maximum number of products allowed in the shop."
+    )
     shop_limit = models.IntegerField(
-        help_text="Maximum number of shops allowed for a single user.")
+        help_text="Maximum number of shops allowed for a single user."
+    )
     features = models.TextField(
-        help_text="A detailed list of features available in this plan.")
+        help_text="A detailed list of features available in this plan."
+    )
     trial_days = models.IntegerField(
-        default=30, help_text="The number of trial days for this plan.")
+        default=30, help_text="The number of trial days for this plan."
+    )
 
     def __str__(self):
         """
@@ -58,14 +67,15 @@ class SubscriptionPlan(models.Model):
 # MODEL: Shop
 # =============================================================================
 
+
 class Currency(models.TextChoices):
-    USD = 'USD', 'United States Dollar'
-    EUR = 'EUR', 'Euro'
-    GBP = 'GBP', 'British Pound'
-    KSH = 'KSH', 'Kenyan Shilling'
-    TZS = 'TZS', 'Tanzanian Shilling'
-    UGX = 'UGX', 'Ugandan Shilling'
-    ZAR = 'ZAR', 'South African Rand'
+    USD = "USD", "United States Dollar"
+    EUR = "EUR", "Euro"
+    GBP = "GBP", "British Pound"
+    KSH = "KSH", "Kenyan Shilling"
+    TZS = "TZS", "Tanzanian Shilling"
+    UGX = "UGX", "Ugandan Shilling"
+    ZAR = "ZAR", "South African Rand"
 
 
 class Shop(models.Model):
@@ -76,24 +86,40 @@ class Shop(models.Model):
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     owner = models.ForeignKey(
-        'accounts.User', on_delete=models.SET_NULL, related_name='owned_shops', null=True, db_index=True)
+        "accounts.User",
+        on_delete=models.SET_NULL,
+        related_name="owned_shops",
+        null=True,
+        db_index=True,
+    )
     name = models.CharField(max_length=255, help_text="The name of the shop.")
     description = models.TextField(
-        blank=True, null=True, help_text="A brief description of the shop.")
+        blank=True, null=True, help_text="A brief description of the shop."
+    )
     country = models.CharField(
-        max_length=100, help_text="Country where the shop is located.")
+        max_length=100, help_text="Country where the shop is located."
+    )
     currency_code = models.CharField(
-        max_length=10, choices=Currency.choices, help_text="Currency code used in the shop.")
+        max_length=10,
+        choices=Currency.choices,
+        help_text="Currency code used in the shop.",
+    )
     logo = models.ImageField(
-        upload_to='shop_logos/',
+        upload_to="shop_logos/",
         blank=True,
         null=True,
-        help_text="Upload the shop's logo image."
+        help_text="Upload the shop's logo image.",
     )
     subscription_plan = models.ForeignKey(
-        SubscriptionPlan, on_delete=models.SET_NULL, blank=True, null=True, help_text="The subscription plan assigned to the shop.")
+        SubscriptionPlan,
+        on_delete=models.SET_NULL,
+        blank=True,
+        null=True,
+        help_text="The subscription plan assigned to the shop.",
+    )
     is_active = models.BooleanField(
-        default=True, help_text="Indicates if the shop is active.")
+        default=True, help_text="Indicates if the shop is active."
+    )
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     updated_at = models.DateTimeField(auto_now=True, db_index=True)
 
@@ -111,6 +137,7 @@ class Shop(models.Model):
             models.Index(fields=["country"]),
             models.Index(fields=["subscription_plan"]),
         ]
+
 
 # =============================================================================
 # MODEL: Category
@@ -131,18 +158,23 @@ class Category(models.Model):
     # Each category belongs to a specific shop.
     # The on_delete=models.CASCADE ensures that if a shop is deleted,
     # all its associated categories are deleted as well.
-    shop = models.ForeignKey(Shop, on_delete=models.CASCADE,
-                             help_text="The shop to which this category belongs.")
+    shop = models.ForeignKey(
+        Shop,
+        on_delete=models.CASCADE,
+        help_text="The shop to which this category belongs.",
+    )
 
     # Name of the category (e.g., 'Electronics', 'Clothing', etc.)
     # This field is essential for identifying and organizing products.
     name = models.CharField(
-        max_length=100, unique=True, help_text="The name of the product category.")
+        max_length=100, unique=True, help_text="The name of the product category."
+    )
 
     # Optional field for a detailed description of the category.
     # Provides additional information about the category, if needed.
     description = models.TextField(
-        blank=True, null=True, help_text="A brief description of the category.")
+        blank=True, null=True, help_text="A brief description of the category."
+    )
 
     # String representation of the category is its name.
     # This will be useful in the admin interface and other parts of the app.
@@ -157,10 +189,11 @@ class Category(models.Model):
         # Index for the 'shop' field to speed up queries filtering by shop
         indexes = [
             # Index on 'shop' field for efficient queries filtering by shop
-            models.Index(fields=['shop']),
+            models.Index(fields=["shop"]),
             # Index on 'name' field for fast searches by category name
-            models.Index(fields=['name']),
+            models.Index(fields=["name"]),
         ]
+
 
 # =============================================================================
 # MODEL: Supplier
@@ -175,14 +208,17 @@ class Supplier(models.Model):
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     # ForeignKey to Shop: Every supplier belongs to a specific shop
-    shop = models.ForeignKey(Shop, on_delete=models.CASCADE,
-                             help_text="The shop to which the supplier is linked.")
+    shop = models.ForeignKey(
+        Shop,
+        on_delete=models.CASCADE,
+        help_text="The shop to which the supplier is linked.",
+    )
     # Supplier's name
-    name = models.CharField(
-        max_length=255, help_text="The name of the supplier.")
+    name = models.CharField(max_length=255, help_text="The name of the supplier.")
     phone = PhoneNumberField(null=True, blank=True)
     address = models.TextField(
-        blank=True, null=True, help_text="The supplier's physical address.")
+        blank=True, null=True, help_text="The supplier's physical address."
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
@@ -195,12 +231,13 @@ class Supplier(models.Model):
         # Add indexes for the fields that are frequently queried
         indexes = [
             # Index on the shop field to speed up lookups for suppliers per shop
-            models.Index(fields=['shop']),
+            models.Index(fields=["shop"]),
             # Index on the name field to speed up searches by supplier name
-            models.Index(fields=['name']),
+            models.Index(fields=["name"]),
             # Index on the created_at field to efficiently filter suppliers by creation date
-            models.Index(fields=['created_at']),
+            models.Index(fields=["created_at"]),
         ]
+
 
 # =============================================================================
 # MODEL: Product
@@ -215,30 +252,44 @@ class Product(models.Model):
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     # ForeignKey to Shop: Each product belongs to a specific shop
-    shop = models.ForeignKey(Shop, on_delete=models.CASCADE,
-                             help_text="The shop to which this product belongs.")
+    shop = models.ForeignKey(
+        "shop_manager.Shop",
+        on_delete=models.CASCADE,
+        related_name="products",
+        help_text="The shop to which this product belongs.",
+    )
     name = models.CharField(
-        max_length=255, unique=True, null=False, help_text="The name of the product.")
+        max_length=255, unique=True, null=False, help_text="The name of the product."
+    )
 
     # ForeignKey to Category: Each product belongs to a specific category
     category = models.ForeignKey(
-        Category, on_delete=models.SET_NULL, null=True, help_text="The category to which the product belongs.")
+        Category,
+        on_delete=models.SET_NULL,
+        null=True,
+        help_text="The category to which the product belongs.",
+    )
 
     # Cost price of the product (monetary value)
     cost_price = models.DecimalField(
-        max_digits=10, decimal_places=2, help_text="The cost price of the product.")
+        max_digits=10, decimal_places=2, help_text="The cost price of the product."
+    )
 
     # Selling price of the product (monetary value)
     selling_price = models.DecimalField(
-        max_digits=10, decimal_places=2, help_text="The selling price of the product.")
+        max_digits=10, decimal_places=2, help_text="The selling price of the product."
+    )
 
     # Description of the product (optional)
     description = models.TextField(
-        blank=True, null=True, help_text="A description of the product.")
+        blank=True, null=True, help_text="A description of the product."
+    )
 
     # Stock reorder level (default is 10 units)
     reorder_level = models.PositiveIntegerField(
-        default=10, help_text="The stock level at which the product should be reordered.")
+        default=10,
+        help_text="The stock level at which the product should be reordered.",
+    )
 
     # Timestamp when the product was created (indexed for performance)
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
@@ -252,11 +303,12 @@ class Product(models.Model):
     class Meta:
         # Add indexes on frequently queried fields
         indexes = [
-            models.Index(fields=['shop']),  # Index on the shop field
-            models.Index(fields=['category']),  # Index on the category field
+            models.Index(fields=["shop"]),  # Index on the shop field
+            models.Index(fields=["category"]),  # Index on the category field
             # Index on the created_at field
-            models.Index(fields=['created_at']),
+            models.Index(fields=["created_at"]),
         ]
+
 
 # =============================================================================
 # MODEL: Stock
@@ -272,15 +324,20 @@ class Stock(models.Model):
 
     # One-to-one relationship with Product: Each stock entry corresponds to a single product
     product = models.OneToOneField(
-        Product, on_delete=models.CASCADE, help_text="The product this stock entry represents.")
+        Product,
+        on_delete=models.CASCADE,
+        help_text="The product this stock entry represents.",
+    )
 
     # Quantity of the product in stock
     quantity = models.PositiveIntegerField(
-        default=0, help_text="The current stock level of the product.")
+        default=0, help_text="The current stock level of the product."
+    )
 
     # Timestamp of the last update for the stock level (indexed for performance)
     last_updated = models.DateTimeField(
-        auto_now=True, help_text="The date and time the stock was last updated.")
+        auto_now=True, help_text="The date and time the stock was last updated."
+    )
 
     def __str__(self):
         """
@@ -291,12 +348,13 @@ class Stock(models.Model):
     class Meta:
         # Add indexes on frequently queried fields for improved performance
         indexes = [
-            models.Index(fields=['product']),  # Index on the product field
+            models.Index(fields=["product"]),  # Index on the product field
             # Index on the last_updated field
-            models.Index(fields=['last_updated']),
+            models.Index(fields=["last_updated"]),
             # Index on the last_updated field
-            models.Index(fields=['quantity']),
+            models.Index(fields=["quantity"]),
         ]
+
 
 # =============================================================================
 # MODEL: Purchase & PurchaseItem Models
@@ -311,57 +369,63 @@ class Purchase(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
 
     shop = models.ForeignKey(
-        Shop, on_delete=models.CASCADE,
+        Shop,
+        on_delete=models.CASCADE,
         help_text="The shop making the purchase.",
-        related_name='purchases',
-        db_index=True
+        related_name="purchases",
+        db_index=True,
     )
 
     supplier = models.ForeignKey(
-        Supplier, on_delete=models.SET_NULL, null=True,
+        Supplier,
+        on_delete=models.SET_NULL,
+        null=True,
         help_text="The supplier from whom the products are purchased.",
-        related_name='purchases',
-        db_index=True
+        related_name="purchases",
+        db_index=True,
     )
 
     total_amount = models.DecimalField(
-        max_digits=12, decimal_places=2,
-        help_text="The total amount for the purchase."
+        max_digits=12, decimal_places=2, help_text="The total amount for the purchase."
     )
 
     payment_status = models.CharField(
         max_length=20,
-        choices=[('Paid', 'Paid'), ('Unpaid', 'Unpaid'),
-                 ('Partial', 'Partial')],
+        choices=[("Paid", "Paid"), ("Unpaid", "Unpaid"), ("Partial", "Partial")],
         help_text="The payment status of the purchase.",
-        db_index=True
+        db_index=True,
     )
 
     payment_method = models.CharField(
         max_length=20,
-        choices=[('Cash', 'Cash'), ('Card', 'Card'),
-                 ('Mobile Money', 'Mobile Money'), ('Credit', 'Credit')],
-        help_text="The payment method used for the purchase."
+        choices=[
+            ("Cash", "Cash"),
+            ("Card", "Card"),
+            ("Mobile Money", "Mobile Money"),
+            ("Credit", "Credit"),
+        ],
+        help_text="The payment method used for the purchase.",
     )
 
     purchase_date = models.DateTimeField(
-        db_index=True,
-        help_text="The date and time when the purchase was made."
+        db_index=True, help_text="The date and time when the purchase was made."
     )
 
     created_by = models.ForeignKey(
-        'accounts.User', on_delete=models.SET_NULL, null=True,
+        "accounts.User",
+        on_delete=models.SET_NULL,
+        null=True,
         help_text="The user who created the purchase.",
-        related_name='created_purchases'
+        related_name="created_purchases",
     )
 
     class Meta:
         indexes = [
-            models.Index(fields=['shop', 'supplier']),
-            models.Index(fields=['purchase_date']),
-            models.Index(fields=['payment_status']),
+            models.Index(fields=["shop", "supplier"]),
+            models.Index(fields=["purchase_date"]),
+            models.Index(fields=["payment_status"]),
         ]
-        ordering = ['-purchase_date']  # Recent purchases first
+        ordering = ["-purchase_date"]  # Recent purchases first
 
     def __str__(self):
         return f"Purchase from {self.supplier} on {self.purchase_date.strftime('%Y-%m-%d')}"
@@ -371,18 +435,18 @@ class PurchaseItem(models.Model):
     """
     Line items in a purchase, representing specific products purchased and their costs.
     """
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
 
     purchase = models.ForeignKey(
-        Purchase, on_delete=models.CASCADE, related_name="items", db_index=True)
+        Purchase, on_delete=models.CASCADE, related_name="items", db_index=True
+    )
 
-    product = models.ForeignKey(
-        Product, on_delete=models.CASCADE, db_index=True)
+    product = models.ForeignKey(Product, on_delete=models.CASCADE, db_index=True)
 
     quantity = models.PositiveIntegerField()
 
-    unit_cost_price = models.DecimalField(
-        max_digits=10, decimal_places=2, blank=True)
+    unit_cost_price = models.DecimalField(max_digits=10, decimal_places=2, blank=True)
 
     def save(self, *args, **kwargs):
         if not self.unit_cost_price:
@@ -398,15 +462,16 @@ class PurchaseItem(models.Model):
 
     class Meta:
         indexes = [
-            models.Index(fields=['purchase']),
-            models.Index(fields=['product']),
-            models.Index(fields=['quantity']),
+            models.Index(fields=["purchase"]),
+            models.Index(fields=["product"]),
+            models.Index(fields=["quantity"]),
         ]
 
 
 # =============================================================================
 # MODEL: Sale & Sale Items
 # =============================================================================
+
 
 class Sale(models.Model):
     """
@@ -415,48 +480,69 @@ class Sale(models.Model):
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     shop = models.ForeignKey(
-        Shop, on_delete=models.CASCADE, help_text="The shop where the sale occurred.", db_index=True)
+        Shop,
+        on_delete=models.CASCADE,
+        help_text="The shop where the sale occurred.",
+        db_index=True,
+    )
     total_amount = models.DecimalField(
-        max_digits=12, decimal_places=2, help_text="The total amount of the sale.")
+        max_digits=12, decimal_places=2, help_text="The total amount of the sale."
+    )
     discount = models.DecimalField(
-        max_digits=10, decimal_places=2, default=0.0, help_text="Discount applied to the sale.")
-    payment_method = models.CharField(max_length=20, choices=[
-        ('Cash', 'Cash'),
-        ('Card', 'Card'),
-        ('Mobile Money', 'Mobile Money'),
-        ('Credit', 'Credit')
-    ], help_text="The payment method used for the sale.")
+        max_digits=10,
+        decimal_places=2,
+        default=0.0,
+        help_text="Discount applied to the sale.",
+    )
+    payment_method = models.CharField(
+        max_length=20,
+        choices=[
+            ("Cash", "Cash"),
+            ("Card", "Card"),
+            ("Mobile Money", "Mobile Money"),
+            ("Credit", "Credit"),
+        ],
+        help_text="The payment method used for the sale.",
+    )
     payment_status = models.CharField(
         max_length=20,
-        choices=[('Paid', 'Paid'), ('Unpaid', 'Unpaid'),
-                 ('Partial', 'Partial')],
+        choices=[("Paid", "Paid"), ("Unpaid", "Unpaid"), ("Partial", "Partial")],
         help_text="The payment status of the purchase.",
-        db_index=True
+        db_index=True,
     )
     sold_by = models.ForeignKey(
-        'accounts.User', on_delete=models.SET_NULL, null=True, help_text="The user who made the sale.")
+        "accounts.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        help_text="The user who made the sale.",
+    )
     sale_date = models.DateTimeField(
-        auto_now_add=True, db_index=True, help_text="The date and time when the sale was made.")
+        auto_now_add=True,
+        db_index=True,
+        help_text="The date and time when the sale was made.",
+    )
 
     class Meta:
         indexes = [
-            models.Index(fields=['sale_date']),
-            models.Index(fields=['payment_status']),
-            models.Index(fields=['shop']),
+            models.Index(fields=["sale_date"]),
+            models.Index(fields=["payment_status"]),
+            models.Index(fields=["shop"]),
         ]
 
 
 class SaleItem(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     sale = models.ForeignKey(
-        Sale, on_delete=models.CASCADE, related_name="items", db_index=True)
-    product = models.ForeignKey(
-        Product, on_delete=models.CASCADE, db_index=True)
+        Sale, on_delete=models.CASCADE, related_name="items", db_index=True
+    )
+    product = models.ForeignKey(Product, on_delete=models.CASCADE, db_index=True)
     quantity = models.PositiveIntegerField()
     unit_cost_price = models.DecimalField(
-        max_digits=10, decimal_places=2, blank=True)  # frozen at sale time
+        max_digits=10, decimal_places=2, blank=True
+    )  # frozen at sale time
     unit_selling_price = models.DecimalField(
-        max_digits=10, decimal_places=2, blank=True)  # frozen at sale time
+        max_digits=10, decimal_places=2, blank=True
+    )  # frozen at sale time
 
     def save(self, *args, **kwargs):
         if not self.unit_cost_price:
@@ -471,7 +557,7 @@ class SaleItem(models.Model):
 
     class Meta:
         indexes = [
-            models.Index(fields=['sale', 'product']),
+            models.Index(fields=["sale", "product"]),
         ]
 
 
@@ -486,23 +572,36 @@ class Expense(models.Model):
     """
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    shop = models.ForeignKey(Shop, on_delete=models.CASCADE,
-                             help_text="The shop associated with the expense.")
-    title = models.CharField(
-        max_length=255, help_text="A brief title for the expense.")
+    shop = models.ForeignKey(
+        Shop,
+        on_delete=models.CASCADE,
+        help_text="The shop associated with the expense.",
+    )
+    title = models.CharField(max_length=255, help_text="A brief title for the expense.")
     amount = models.DecimalField(
-        max_digits=12, decimal_places=2, help_text="The total amount of the expense.")
-    expense_type = models.CharField(max_length=50, choices=[
-        ('rent', 'Rent'),
-        ('utility', 'Utility'),
-        ('maintenance', 'Maintenance'),
-        ('wages', 'Wages'),
-        ('misc', 'Miscellaneous')
-    ], help_text="The category of the expense.")
+        max_digits=12, decimal_places=2, help_text="The total amount of the expense."
+    )
+    expense_type = models.CharField(
+        max_length=50,
+        choices=[
+            ("rent", "Rent"),
+            ("utility", "Utility"),
+            ("maintenance", "Maintenance"),
+            ("wages", "Wages"),
+            ("misc", "Miscellaneous"),
+        ],
+        help_text="The category of the expense.",
+    )
     incurred_by = models.ForeignKey(
-        'accounts.User', on_delete=models.SET_NULL, null=True, help_text="The user who incurred the expense.")
+        "accounts.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        help_text="The user who incurred the expense.",
+    )
     date = models.DateField(
-        db_index=True, help_text="The date when the expense occurred.")
+        db_index=True, help_text="The date when the expense occurred."
+    )
+
 
 # =============================================================================
 # MODEL: Offline Sync Log
@@ -515,14 +614,25 @@ class OfflineSyncLog(models.Model):
     """
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    shop = models.ForeignKey(Shop, on_delete=models.CASCADE,
-                             help_text="The shop for which sync logs are recorded.")
-    sync_status = models.CharField(max_length=20, choices=[(
-        'Success', 'Success'), ('Failure', 'Failure')], help_text="The status of the sync attempt.")
+    shop = models.ForeignKey(
+        Shop,
+        on_delete=models.CASCADE,
+        help_text="The shop for which sync logs are recorded.",
+    )
+    sync_status = models.CharField(
+        max_length=20,
+        choices=[("Success", "Success"), ("Failure", "Failure")],
+        help_text="The status of the sync attempt.",
+    )
     sync_date = models.DateTimeField(
-        auto_now_add=True, help_text="The date and time when the sync occurred.")
+        auto_now_add=True, help_text="The date and time when the sync occurred."
+    )
     error_message = models.TextField(
-        blank=True, null=True, help_text="Any error message returned during the sync process.")
+        blank=True,
+        null=True,
+        help_text="Any error message returned during the sync process.",
+    )
+
 
 # =============================================================================
 # END OF MODELS
