@@ -33,7 +33,7 @@ class LoginView(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request):
-        email_input = request.data.get('email', '').strip()
+        email_input = request.data.get('email', '').strip().lower()
         password = request.data.get('password', '')
 
         if not email_input or not password:
@@ -41,7 +41,7 @@ class LoginView(APIView):
 
         # Find user case-insensitively
         try:
-            user = User.objects.get(email__iexact=email_input)
+            user = User.objects.get(email=email_input)
         except User.DoesNotExist:
             logger.warning(f"Login failed - email not found: {email_input}")
             return Response({"detail": "Invalid credentials."}, status=401)
