@@ -18,6 +18,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
+from accounts.permissions import IsSuperAdmin
 
 
 logger = logging.getLogger(__name__)
@@ -186,6 +187,66 @@ class VerifyEmailView(APIView):
             {"message": "Email verified successfully. You can now log in."},
             status=status.HTTP_200_OK,
         )
+
+
+
+class PasswordResetRequestView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        email = request.data.get('email')
+        if not email:
+            return Response({'detail': 'Email is required.'}, status=400)
+
+        try:
+            user = User.objects.get(email=email.lower())
+            reset_token = str(uuid.uuid4())
+            user.verification_token = reset_token  # Reuse field for reset
+            user.save()
+
+            reset_url = f"{settings.FRONTEND_URL}/reset-password/{reset_token}/"
+            send_mail(
+                'Password Reset for SHOP Manager',
+                f'Click to reset password: {reset_url}',
+                settings.DEFAULT_FROM_EMAIL,
+                [user.email]
+            )
+            return Response({'message': 'Password reset email sent.'})
+        except User.DoesNotExist:
+            return Response({'detail': 'No user found.'}, status=404)
+
+class PasswordResetConfirmView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request, token):
+        new_password = request.data.get('password')
+        if not new_password:
+            return Response({'detail': 'New password required.'}, status=400)
+
+        try:
+            user = User.objects.get(verification_token=token)
+            user.set_password(new_password)
+            user.verification_token = None
+            user.save()
+            return Response({'message': 'Password reset successful.'})
+        except User.DoesNotExist:
+            return Response({'detail': 'Invalid token.'}, status=400)
+
+class AdminPasswordResetView(APIView):  # Admin-only override
+    permission_classes = [IsSuperAdmin]
+
+    def post(self, request, user_id):
+        try:
+            user = User.objects.get(id=user_id)
+            new_password = request.data.get('new_password')
+            if not new_password:
+                return Response({'detail': 'New password required.'}, status=400)
+            user.set_password(new_password)
+            user.save()
+            # Optionally email user
+            return Response({'message': f'Password reset for {user.email}.'})
+        except User.DoesNotExist:
+            return Response({'detail': 'User not found.'}, status=404)
 
 
 # ==================== User ViewSet ====================
