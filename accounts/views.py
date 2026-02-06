@@ -10,15 +10,16 @@ from rest_framework.permissions import AllowAny
 from rest_framework.views import APIView
 from accounts.serializers import UserSerializer, RegisterSerializer
 from accounts.models import User, UserRole
+from shop_manager.models import Shop
 import uuid
 from rest_framework.decorators import api_view
 import logging
 from django.contrib.auth import authenticate
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.exceptions import TokenError
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import ValidationError, PermissionDenied
 from rest_framework.permissions import IsAuthenticated
-from accounts.permissions import IsSuperAdmin
+from accounts.permissions import CanManageShopUsers, IsSuperAdmin
 
 
 logger = logging.getLogger(__name__)
@@ -119,6 +120,15 @@ class RegisterView(APIView):
             user.verification_token = verification_token
             user.is_active = False
             user.save(update_fields=["verification_token", "is_active"])
+
+            # Auto-create shop for this new shop owner
+            shop = Shop.objects.create(
+                name=f"{user.full_name}'s Shop",  # or let them edit later
+                owner=user,
+                # add other defaults
+            )
+            user.shop = shop
+            user.save()
 
             # Send verification email
             verification_url = (
@@ -259,7 +269,7 @@ class UserViewSet(viewsets.ModelViewSet):
 
     queryset = User.objects.all()
     serializer_class = UserSerializer
-    # permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, CanManageShopUsers]
 
 
 @api_view(["POST"])
@@ -281,17 +291,38 @@ class UserViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        # Regular users can only see themselves
-        # You can later extend this for shop admins to see their shop users
-        if self.request.user.is_staff:
+        if self.request.user.role == UserRole.SUPER_ADMIN:
             return User.objects.all()
-        return User.objects.filter(id=self.request.user.id)
+        elif self.request.user.role == UserRole.SHOP_ADMIN:
+            return User.objects.filter(shop=self.request.user.shop)  # self + cashiers
+        elif self.request.user.role == UserRole.CASHIER:
+            return User.objects.filter(id=self.request.user.id)
+        return User.objects.none()
+    
+
+    def get_serializer_class(self):
+        if self.action == 'create':
+            return UserCreateSerializer
+        return UserSerializer
+
+    def perform_create(self, serializer):
+        if self.request.user.role == UserRole.SUPER_ADMIN:
+            serializer.save()  # full flexibility
+        elif self.request.user.role == UserRole.SHOP_ADMIN:
+            serializer.save(
+                shop=self.request.user.shop,
+                role=UserRole.CASHIER,
+                is_active=True,  # cashiers active immediately (admin-created)
+            )
+        else:
+            raise PermissionDenied("You cannot create users.")
+    
 
     def perform_update(self, serializer):
-        # Prevent changing role / is_staff unless superuser
-        if not self.request.user.is_staff:
-            serializer.initial_data.pop("role", None)
-            serializer.initial_data.pop("is_staff", None)
+        # Prevent non-superadmins from changing role/shop
+        if self.request.user.role != UserRole.SUPER_ADMIN:
+            serializer.validated_data.pop('role', None)
+            serializer.validated_data.pop('shop', None)
         serializer.save()
 
 
