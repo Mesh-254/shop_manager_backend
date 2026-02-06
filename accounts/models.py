@@ -57,7 +57,7 @@ class CustomUserManager(BaseUserManager):
         """
         extra_fields.setdefault('is_staff', True)
         extra_fields.setdefault('is_superuser', True)
-        extra_fields.setdefault('role', UserRole.ADMIN)
+        extra_fields.setdefault('role', UserRole.SUPER_ADMIN)
 
         if not password:
             raise ValueError("Superuser must have a password.")
