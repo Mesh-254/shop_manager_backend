@@ -6,14 +6,55 @@ from .models import (
     Stock, Purchase, PurchaseItem, Sale, SaleItem,
     Expense, OfflineSyncLog
 )
+from accounts.models import UserRole
 
 
 class ShopScopedAdmin(ModelAdmin):
     def get_queryset(self, request):
         qs = super().get_queryset(request)
-        if request.user.role == 'ShopAdmin':
+        if request.user.role == UserRole.SHOP_ADMIN:
             return qs.filter(shop=request.user.shop)
         return qs
+
+    def has_view_permission(self, request, obj=None):
+        if not request.user.is_staff:
+            return False
+        if request.user.role == UserRole.SUPER_ADMIN:
+            return True
+        if request.user.role == UserRole.SHOP_ADMIN:
+            return True  # Can view changelist (queryset will scope to their shop)
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        if request.user.role == UserRole.SUPER_ADMIN:
+            return True
+        if request.user.role == UserRole.SHOP_ADMIN:
+            # Can change objects in their shop (obj check for detail view)
+            return obj is None or (hasattr(obj, 'shop') and obj.shop == request.user.shop)
+        return False
+
+    def has_add_permission(self, request):
+        if request.user.role == UserRole.SUPER_ADMIN:
+            return True
+        if request.user.role == UserRole.SHOP_ADMIN:
+            return True  # Allow adding new items (will be scoped on save)
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        if request.user.role == UserRole.SUPER_ADMIN:
+            return True
+        if request.user.role == UserRole.SHOP_ADMIN:
+            return obj is None or (hasattr(obj, 'shop') and obj.shop == request.user.shop)
+        return False
+
+    # Optional: Make certain fields read-only for SHOP_ADMIN
+    def get_readonly_fields(self, request, obj=None):
+        readonly = super().get_readonly_fields(request, obj)
+        if request.user.role == UserRole.SHOP_ADMIN:
+            # Example: Prevent changing shop on existing objects
+            if obj and hasattr(obj, 'shop'):
+                readonly += ('shop',)
+        return readonly
 
 
 # Inlines (unchanged)
