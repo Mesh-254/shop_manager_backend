@@ -11,6 +11,12 @@ from django.contrib.auth import get_user_model
 User = get_user_model()
 
 
+class BrandSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Brand
+        fields = ['id', 'name', 'country_of_origin']
+        read_only_fields = ['id']
+
 # =============================================================================
 # SubscriptionPlan Serializer
 # =============================================================================
@@ -223,84 +229,117 @@ class SupplierSerializer(serializers.HyperlinkedModelSerializer):
 # Product Serializer
 # =============================================================================
 
+class ProductListSerializer(serializers.ModelSerializer):
+    category = CategorySerializer(read_only=True)
+    brand = BrandSerializer(read_only=True)
+    supplier = SupplierSerializer(read_only=True)
+    current_stock = serializers.IntegerField(source='stock.quantity', read_only=True, default=0)
+    needs_reorder = serializers.SerializerMethodField()
 
-class ProductSerializer(serializers.HyperlinkedModelSerializer):
+    class Meta:
+        model = Product
+        fields = [
+            'id',
+            'name',
+            'category',
+            'brand',
+            'supplier',
+            'cost_price',
+            'selling_price',
+            'reorder_level',
+            'current_stock',
+            'needs_reorder',
+            'is_active',
+            'is_discontinued',
+            'created_at',
+        ]
+        read_only_fields = [
+            'id', 'current_stock', 'needs_reorder',
+            'created_at', 'is_discontinued'
+        ]
+
+    def get_needs_reorder(self, obj):
+        stock = getattr(obj, 'stock', None)
+        if stock and hasattr(stock, 'quantity'):
+            return stock.quantity <= obj.reorder_level
+        return False
+
+
+# ────────────────────────────────────────────────
+#  DETAIL serializer (single object view)
+# ────────────────────────────────────────────────
+class ProductDetailSerializer(serializers.ModelSerializer):
+    category = CategorySerializer(read_only=True)
+    brand = BrandSerializer(read_only=True)
+    supplier = SupplierSerializer(read_only=True)
+    current_stock = serializers.IntegerField(source='stock.quantity', read_only=True, default=0)
+    created_by = serializers.StringRelatedField(read_only=True)
+
+    class Meta:
+        model = Product
+        fields = '__all__'
+        read_only_fields = [
+            'id', 'current_stock', 'created_at', 'updated_at',
+            'created_by', 'is_discontinued', 'discontinued_at',
+            'shop'  # usually set automatically
+        ]
+
+
+# ────────────────────────────────────────────────
+#  CREATE & UPDATE serializer
+# ────────────────────────────────────────────────
+class ProductWriteSerializer(serializers.ModelSerializer):
     """
-    Serializer for the Product model. This serializer converts Product instances to JSON
-    and handles incoming data for creating or updating Product objects.
-    It represents the relationships between Product, Shop, and Category using hyperlinks.
+    Used for both create and update.
+    Note: stock quantity is only accepted on creation.
+    After creation, stock should be managed via purchase/sale/adjustment.
     """
-
-    # Hyperlink for the related Shop
-    shop = serializers.HyperlinkedRelatedField(
-        queryset=Shop.objects.all(),
-        view_name='shop-detail',  # Ensure this URL pattern exists for shop details
-        help_text="URL of the shop to which this product belongs."
-    )
-
-    # Hyperlink for the related Category
-    category = serializers.HyperlinkedRelatedField(
-        queryset=Category.objects.all(),
-        view_name='category-detail',  # Ensure this URL pattern exists for category details
-        help_text="URL of the category to which this product belongs."
+    initial_stock = serializers.IntegerField(
+        write_only=True,
+        required=False,
+        default=0,
+        min_value=0,
+        help_text="Initial stock quantity (only used on creation)"
     )
 
     class Meta:
         model = Product
-        fields = ['url', 'id', 'shop', 'category', 'name', 'cost_price',
-                  'selling_price', 'description', 'reorder_level', 'created_at']
-        extra_kwargs = {
-            # URL for accessing product details
-            'url': {'view_name': 'product-detail'},
-            # URL for accessing shop details
-            'shop': {'view_name': 'shop-detail'},
-            # URL for accessing category details
-            'category': {'view_name': 'category-detail'}
-        }
-
-    def validate_cost_price(self, value):
-        """
-        Ensure the cost price is positive.
-        """
-        if value <= 0:
-            raise serializers.ValidationError(
-                "Cost price must be greater than zero.")
-        return value
-
-    def validate_selling_price(self, value):
-        """
-        Ensure the selling price is positive and greater than the cost price.
-        """
-        if value <= 0:
-            raise serializers.ValidationError(
-                "Selling price must be greater than zero.")
-        return value
+        fields = [
+            'name',
+            'description',
+            'category',
+            'brand',
+            'supplier',
+            'compatible_vehicles',
+            'cost_price',
+            'selling_price',
+            'reorder_level',
+            'initial_stock',
+        ]
 
     def create(self, validated_data):
-        """
-        Override the create method to add custom logic when creating a product.
-        """
-        product = Product.objects.create(**validated_data)
+        initial_stock = validated_data.pop('initial_stock', 0)
+        user = self.context['request'].user
+
+        product = Product.objects.create(
+            **validated_data,
+            shop=user.shop if hasattr(user, 'shop') else None,
+            created_by=user
+        )
+
+        if initial_stock > 0:
+            Stock.objects.create(
+                product=product,
+                quantity=initial_stock,
+                # you may want to create a StockTransaction here too
+            )
+
         return product
 
     def update(self, instance, validated_data):
-        """
-        Override the update method to add custom logic when updating a product.
-        """
-        instance.name = validated_data.get('name', instance.name)
-        instance.cost_price = validated_data.get(
-            'cost_price', instance.cost_price)
-        instance.selling_price = validated_data.get(
-            'selling_price', instance.selling_price)
-        instance.description = validated_data.get(
-            'description', instance.description)
-        instance.reorder_level = validated_data.get(
-            'reorder_level', instance.reorder_level)
-        instance.shop = validated_data.get('shop', instance.shop)
-        instance.category = validated_data.get('category', instance.category)
-        instance.save()
-        return instance
-
+        # Prevent changing stock quantity directly
+        validated_data.pop('initial_stock', None)
+        return super().update(instance, validated_data)
 
 # =============================================================================
 # Stock Serializer
