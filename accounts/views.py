@@ -113,6 +113,7 @@ class RegisterView(APIView):
                 password=validated_data["password"],
                 phone_number=validated_data.get("phone_number"),
                 role=validated_data.get("role", UserRole.SHOP_ADMIN),
+                is_staff=True,  # Needed for admin access
             )
 
             # Generate and save verification token
