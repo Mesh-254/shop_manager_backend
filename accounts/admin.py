@@ -42,3 +42,20 @@ class UserAdmin(ModelAdmin, BaseUserAdmin):
         elif request.user.role == UserRole.SHOP_ADMIN:
             return qs.filter(shop=request.user.shop)
         return qs.none()
+    
+    # Allow ShopAdmin to view/change users in their shop
+    def has_view_permission(self, request, obj=None):
+        if request.user.role == UserRole.SUPER_ADMIN:
+            return True
+        if request.user.role == UserRole.SHOP_ADMIN:
+            return obj is None or obj.shop == request.user.shop
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return self.has_view_permission(request, obj)
+
+    def has_delete_permission(self, request, obj=None):
+        return self.has_view_permission(request, obj)
+
+    def has_add_permission(self, request):
+        return request.user.role in [UserRole.SUPER_ADMIN, UserRole.SHOP_ADMIN]
