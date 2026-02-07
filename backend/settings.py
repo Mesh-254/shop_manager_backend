@@ -42,6 +42,7 @@ INSTALLED_APPS = [
     "unfold.contrib.filters",       # Optional but recommended
     "unfold.contrib.forms",         # Optional
     "unfold.contrib.inlines",
+    'django_filters',             # For advanced filtering in admin and API
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -167,6 +168,11 @@ REST_FRAMEWORK = {
     ),
 }
 
+
+AUTHENTICATION_BACKENDS = [
+    'accounts.backends.CaseInsensitiveEmailBackend',
+    'django.contrib.auth.backends.ModelBackend',
+]
 
 # JWT Configuration
 from datetime import timedelta
