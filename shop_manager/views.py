@@ -1,4 +1,6 @@
 from decimal import Decimal
+from time import timezone
+from warnings import filters
 from django.shortcuts import get_object_or_404
 from rest_framework import viewsets, status
 from .models import *
@@ -10,8 +12,11 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 from django.db import transaction
 from .signals import recalculate_purchase_total
-
-
+from django_filters.rest_framework import DjangoFilterBackend
+from rest_framework import filters
+from rest_framework.permissions import IsAuthenticated
+from .permissions import IsCashierOrHigher
+from rest_framework.decorators import action
 
 
 # ==================== SubscriptionPlan ViewSet ====================
@@ -127,15 +132,138 @@ class SupplierViewSet(viewsets.ModelViewSet):
 
 # ==================== Product ViewSet ====================
 
-
 class ProductViewSet(viewsets.ModelViewSet):
     """
-    A viewset for viewing and editing Product instances.
+    API endpoint for managing car parts / inventory products.
+
+    Permissions matrix:
+    ┌─────────────┬─────────┬────────────┬──────────┐
+    │ Role        │ List    │ Retrieve   │ Create/Update/Delete │
+    ├─────────────┼─────────┼────────────┼──────────────────────┤
+    │ SuperAdmin  │ Yes     │ Yes        │ Yes (all shops)      │
+    │ ShopAdmin   │ Yes     │ Yes        │ Yes (own shop)       │
+    │ Cashier     │ Yes     │ Yes        │ No                   │
+    └─────────────┴─────────┴────────────┴──────────────────────┘
+
+    Features:
+    • Search:name, category, brand, compatible vehicles
+    • Filter: category, brand, supplier, stock level, discontinued
+    • Low-stock list
+    • Soft delete (discontinue with reason)
+    • Basic history endpoint (extendable)
     """
+    queryset = Product.objects.select_related(
+        'category', 'brand', 'supplier', 'shop', 'created_by'
+    ).prefetch_related('stock')
 
-    queryset = Product.objects.all()
-    serializer_class = ProductSerializer
+    permission_classes = [IsAuthenticated, IsCashierOrHigher]
 
+    filter_backends = [
+        DjangoFilterBackend,
+        filters.SearchFilter,
+        filters.OrderingFilter
+    ]
+
+    search_fields = [
+
+        'name',
+        'description',
+        'compatible_vehicles',
+        'brand__name',
+        'category__name',
+        'supplier__name',
+    ]
+
+    ordering_fields = [
+        'name',
+        'selling_price',
+        'cost_price',
+        'reorder_level',
+        'created_at',
+        # if you expose stock in ordering, use annotation or property
+    ]
+
+    ordering = ['name']
+
+    def get_serializer_class(self):
+        if self.action == 'list':
+            return ProductListSerializer
+        if self.action == 'retrieve':
+            return ProductDetailSerializer
+        if self.action in ['create', 'update', 'partial_update']:
+            return ProductWriteSerializer
+        return super().get_serializer_class()
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        user = self.request.user
+
+        # SuperAdmin sees everything
+        if user.role == 'SuperAdmin':
+            return qs
+
+        # Filter by shop
+        if hasattr(user, 'shop') and user.shop:
+            qs = qs.filter(shop=user.shop)
+        else:
+            return qs.none()
+
+        # Cashiers usually shouldn't see discontinued items
+        if user.role == 'Cashier':
+            qs = qs.filter(is_active=True, is_discontinued=False)
+
+        return qs
+
+    @action(detail=False, methods=['get'], url_path='low-stock')
+    def low_stock(self, request):
+        """List products that are at or below reorder level"""
+        qs = self.get_queryset().filter(
+            is_active=True,
+            is_discontinued=False
+        ).filter(
+            stock__quantity__lte=models.F('reorder_level')
+        )
+        serializer = ProductListSerializer(qs, many=True)
+        return Response(serializer.data)
+
+    @action(detail=True, methods=['post'], url_path='discontinue')
+    def discontinue(self, request, pk=None):
+        """Mark product as discontinued (soft delete)"""
+        product = self.get_object()
+
+        if request.user.role not in ('SuperAdmin', 'ShopAdmin'):
+            return Response(
+                {"detail": "Only admins can discontinue products."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        reason = request.data.get('reason', '').strip()
+        if not reason:
+            raise serializers.ValidationError({"reason": "Discontinue reason is required."})
+
+        product.is_discontinued = True
+        product.is_active = False
+        product.discontinued_reason = reason
+        product.discontinued_at = timezone.now()
+        product.save(update_fields=[
+            'is_discontinued', 'is_active',
+            'discontinued_reason', 'discontinued_at'
+        ])
+
+        return Response(ProductDetailSerializer(product).data)
+
+    def perform_create(self, serializer):
+        # Automatically set shop and creator
+        serializer.save(
+            shop=self.request.user.shop if hasattr(self.request.user, 'shop') else None,
+            created_by=self.request.user
+        )
+
+    def perform_destroy(self, instance):
+        # Prevent hard delete — force usage of discontinue action
+        raise serializers.ValidationError(
+            "Products cannot be hard-deleted. Use the /discontinue/ action instead."
+        )
 
 # ==================== Category ViewSet ====================
 
