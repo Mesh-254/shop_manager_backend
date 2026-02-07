@@ -159,9 +159,7 @@ class Category(models.Model):
     # The on_delete=models.CASCADE ensures that if a shop is deleted,
     # all its associated categories are deleted as well.
     shop = models.ForeignKey(
-        Shop,
-        on_delete=models.CASCADE,
-        help_text="The shop to which this category belongs.",
+        "Shop", on_delete=models.CASCADE, related_name="categories"
     )
 
     # Name of the category (e.g., 'Electronics', 'Clothing', etc.)
@@ -186,6 +184,9 @@ class Category(models.Model):
 
     # Adding indexes to frequently queried fields to improve performance
     class Meta:
+
+        verbose_name_plural = "Categories"
+        ordering = ["name"]
         # Index for the 'shop' field to speed up queries filtering by shop
         indexes = [
             # Index on 'shop' field for efficient queries filtering by shop
@@ -239,75 +240,115 @@ class Supplier(models.Model):
         ]
 
 
+class Brand(models.Model):
+    """
+    product brand/manufacturer information for
+    better product organization and filtering
+    """
+
+    name = models.CharField(max_length=100, unique=True)
+    country_of_origin = models.CharField(max_length=100, blank=True)
+
+    def __str__(self):
+        return self.name
+
+
 # =============================================================================
 # MODEL: Product
 # =============================================================================
 
 
 class Product(models.Model):
-    """
-    Represents a product available in a shop. This includes details such as
-    cost price, selling price, tax rate, and inventory tracking.
-    """
-
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    # ForeignKey to Shop: Each product belongs to a specific shop
-    shop = models.ForeignKey(
-        "shop_manager.Shop",
-        on_delete=models.CASCADE,
-        related_name="products",
-        help_text="The shop to which this product belongs.",
-    )
-    name = models.CharField(
-        max_length=255, unique=True, null=False, help_text="The name of the product."
+
+    name = models.CharField(max_length=255, db_index=True)
+    description = models.TextField(blank=True)
+
+    category = models.ForeignKey(
+        "Category", on_delete=models.PROTECT, related_name="products"
     )
 
-    # ForeignKey to Category: Each product belongs to a specific category
-    category = models.ForeignKey(
-        Category,
+    brand = models.ForeignKey(
+        "Brand",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="products",
+    )
+
+    supplier = models.ForeignKey(
+        "Supplier",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="supplied_products",
+    )
+
+    shop = models.ForeignKey("Shop", on_delete=models.CASCADE, related_name="products")
+
+    # Compatibility – simple text field for MVP (can be normalized later)
+    compatible_vehicles = models.TextField(
+        blank=True, help_text="e.g. Toyota Corolla 2015–2020, Honda Civic 2016–2022"
+    )
+
+    cost_price = models.DecimalField(max_digits=12, decimal_places=2)
+    selling_price = models.DecimalField(max_digits=12, decimal_places=2)
+
+    reorder_level = models.PositiveIntegerField(
+        default=5, help_text="Stock level below which reorder is recommended"
+    )
+
+    # Stock is managed via Stock model – we keep reference here for convenience
+    # But actual quantity should be read from Stock.current_quantity
+    # (avoid data duplication – or use property / cached_property)
+
+    is_active = models.BooleanField(default=True, db_index=True)
+    is_discontinued = models.BooleanField(default=False, db_index=True)
+    discontinued_reason = models.TextField(blank=True, null=True)
+    discontinued_at = models.DateTimeField(null=True, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    created_by = models.ForeignKey(
+        "accounts.User",
         on_delete=models.SET_NULL,
         null=True,
-        help_text="The category to which the product belongs.",
+        related_name="products_created",
     )
-
-    # Cost price of the product (monetary value)
-    cost_price = models.DecimalField(
-        max_digits=10, decimal_places=2, help_text="The cost price of the product."
-    )
-
-    # Selling price of the product (monetary value)
-    selling_price = models.DecimalField(
-        max_digits=10, decimal_places=2, help_text="The selling price of the product."
-    )
-
-    # Description of the product (optional)
-    description = models.TextField(
-        blank=True, null=True, help_text="A description of the product."
-    )
-
-    # Stock reorder level (default is 10 units)
-    reorder_level = models.PositiveIntegerField(
-        default=10,
-        help_text="The stock level at which the product should be reordered.",
-    )
-
-    # Timestamp when the product was created (indexed for performance)
-    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
-
-    def __str__(self):
-        """
-        Returns a string representation of the product name.
-        """
-        return self.name
 
     class Meta:
-        # Add indexes on frequently queried fields
         indexes = [
-            models.Index(fields=["shop"]),  # Index on the shop field
-            models.Index(fields=["category"]),  # Index on the category field
-            # Index on the created_at field
-            models.Index(fields=["created_at"]),
+            models.Index(fields=["shop", "name"]),
+            models.Index(fields=["shop", "category", "is_active"]),
+            models.Index(fields=["shop", "is_discontinued"]),
         ]
+        ordering = ["name"]
+        verbose_name = "Part"
+        verbose_name_plural = "Parts"
+
+    def __str__(self):
+        return f"{self.id or 'N/A'} – {self.name}"
+
+    @property
+    def current_stock(self):
+        """Current stock level – read from related Stock model"""
+        stock = self.stock.first()  # assuming OneToOne or first related
+        return stock.quantity if stock else 0
+
+    def mark_as_discontinued(self, reason: str, user):
+        """Soft delete helper"""
+        self.is_discontinued = True
+        self.is_active = False
+        self.discontinued_reason = reason
+        self.discontinued_at = timezone.now()
+        self.save(
+            update_fields=[
+                "is_discontinued",
+                "is_active",
+                "discontinued_reason",
+                "discontinued_at",
+            ]
+        )
 
 
 # =============================================================================
