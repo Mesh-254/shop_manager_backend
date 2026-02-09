@@ -12,7 +12,7 @@ from accounts.serializers import UserSerializer, RegisterSerializer
 from accounts.models import User, UserRole
 from shop_manager.models import Shop
 import uuid
-from rest_framework.decorators import api_view
+from rest_framework.decorators import api_view, permission_classes
 import logging
 from django.contrib.auth import authenticate
 from rest_framework_simplejwt.tokens import RefreshToken
@@ -20,6 +20,7 @@ from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework.exceptions import ValidationError, PermissionDenied
 from rest_framework.permissions import IsAuthenticated
 from accounts.permissions import CanManageShopUsers, IsSuperAdmin
+from accounts.tasks import send_verification_email
 
 
 logger = logging.getLogger(__name__)
@@ -33,35 +34,46 @@ class LoginView(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request):
-        email_input = request.data.get('email', '').strip().lower()
-        password = request.data.get('password', '')
+        email_input = request.data.get("email", "").strip().lower()
+        password = request.data.get("password")
 
-        if not email_input or not password:
-            return Response({"detail": "Email and password are required."}, status=400)
+        if not email_input:
+            return Response({"detail": "Email is required."}, status=400)
 
-        # Find user case-insensitively
         try:
             user = User.objects.get(email=email_input)
         except User.DoesNotExist:
-            logger.warning(f"Login failed - email not found: {email_input}")
             return Response({"detail": "Invalid credentials."}, status=401)
 
-        # Now authenticate with the **normalized** email from DB
-        authenticated_user = authenticate(email=user.email, password=password)
+        if not user.is_active:
+            return Response(
+                {"detail": "Account not verified. Check your email."}, status=401
+            )
 
-        if authenticated_user is None:
-            logger.warning(f"Password mismatch for: {user.email}")
-            return Response({"detail": "Invalid credentials."}, status=401)
+        # If user has no password (Google signup), allow login without password
+        if not user.has_usable_password():
+            if password is not None:
+                return Response(
+                    {"detail": "This account uses Google login."}, status=400
+                )
+        else:
+            if not password or not user.check_password(password):
+                return Response({"detail": "Invalid credentials."}, status=401)
 
-        if not authenticated_user.is_active:
-            return Response({"detail": "Account is inactive."}, status=403)
-
-        refresh = RefreshToken.for_user(authenticated_user)
-        return Response({
-            "access": str(refresh.access_token),
-            "refresh": str(refresh),
-            "user": UserSerializer(authenticated_user, context={'request': request}).data
-        })
+        refresh = RefreshToken.for_user(user)
+        return Response(
+            {
+                "refresh": str(refresh),
+                "access": str(refresh.access_token),
+                "user": {
+                    "id": user.id,
+                    "email": user.email,
+                    "full_name": user.full_name,
+                    "role": user.role,
+                    "shop_id": user.shop.id if user.shop else None,
+                },
+            }
+        )
 
 
 class LogoutView(APIView):
@@ -135,20 +147,8 @@ class RegisterView(APIView):
             verification_url = (
                 f"{settings.FRONTEND_URL.rstrip('/')}/verify-email/{verification_token}"
             )
-            try:
-                send_mail(
-                    subject="Activate Your SHOP Manager Account",
-                    message=f"Please activate your account by clicking this link:\n\n{verification_url}\n\nThis link expires in 48 hours.",
-                    from_email=settings.DEFAULT_FROM_EMAIL,
-                    recipient_list=[user.email],
-                    fail_silently=False,
-                )
-                logger.info(f"Verification email sent to {user.email}")
-            except Exception as e:
-                logger.error(
-                    f"Failed to send verification email to {user.email}: {str(e)}"
-                )
-                # We still return success — don't fail registration because of email
+            
+            send_verification_email.delay(user.email, verification_url)
 
             return Response(
                 {
@@ -171,43 +171,59 @@ class RegisterView(APIView):
 
 class VerifyEmailView(APIView):
     """
-    Verify email address using token sent in email
+    Verify user email via token.
+    GET /api/accounts/verify-email/<uuid:token>/
     """
-
     permission_classes = [AllowAny]
 
     def get(self, request, token):
         try:
-            user = User.objects.get(verification_token=token)
+            # Find inactive user with matching token
+            user = User.objects.get(
+                verification_token=token,
+                is_active=False
+            )
+
+            # Activate account
+            user.is_active = True
+            user.is_staff = True  # Allow access to admin if needed
+            user.verification_token = None  # Clear token after use
+            user.save(update_fields=['is_active', 'is_staff', 'verification_token'])
+
+            logger.info(f"Email verified successfully for user: {user.email}")
+
+            return Response(
+                {
+                    "message": "Email verified successfully!",
+                    "detail": "Your account has been activated. You can now log in."
+                },
+                status=status.HTTP_200_OK
+            )
+
         except User.DoesNotExist:
+            logger.warning(f"Invalid or expired verification token attempted: {token}")
             return Response(
-                {"detail": "Invalid or expired verification token."},
-                status=status.HTTP_400_BAD_REQUEST,
+                {
+                    "error": "Invalid or expired verification link.",
+                    "detail": "This link may have already been used or has expired. Please request a new one."
+                },
+                status=status.HTTP_400_BAD_REQUEST
             )
-
-        if user.is_active:
+        except Exception as e:
+            logger.error(f"Unexpected error during email verification: {str(e)}")
             return Response(
-                {"detail": "Account is already active."}, status=status.HTTP_200_OK
+                {"error": "An unexpected error occurred. Please try again."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
-
-        user.is_active = True
-        user.verification_token = None  # Clear token
-        user.save(update_fields=["is_active", "verification_token"])
-
-        return Response(
-            {"message": "Email verified successfully. You can now log in."},
-            status=status.HTTP_200_OK,
-        )
-
 
 
 class PasswordResetRequestView(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request):
-        email = request.data.get('email')
+        email = request.data.get("email")
         if not email:
-            return Response({'detail': 'Email is required.'}, status=400)
+            return Response({"detail": "Email is required."}, status=400)
 
         try:
             user = User.objects.get(email=email.lower())
@@ -217,31 +233,33 @@ class PasswordResetRequestView(APIView):
 
             reset_url = f"{settings.FRONTEND_URL}/reset-password/{reset_token}/"
             send_mail(
-                'Password Reset for SHOP Manager',
-                f'Click to reset password: {reset_url}',
+                "Password Reset for SHOP Manager",
+                f"Click to reset password: {reset_url}",
                 settings.DEFAULT_FROM_EMAIL,
-                [user.email]
+                [user.email],
             )
-            return Response({'message': 'Password reset email sent.'})
+            return Response({"message": "Password reset email sent."})
         except User.DoesNotExist:
-            return Response({'detail': 'No user found.'}, status=404)
+            return Response({"detail": "No user found."}, status=404)
+
 
 class PasswordResetConfirmView(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request, token):
-        new_password = request.data.get('password')
+        new_password = request.data.get("password")
         if not new_password:
-            return Response({'detail': 'New password required.'}, status=400)
+            return Response({"detail": "New password required."}, status=400)
 
         try:
             user = User.objects.get(verification_token=token)
             user.set_password(new_password)
             user.verification_token = None
             user.save()
-            return Response({'message': 'Password reset successful.'})
+            return Response({"message": "Password reset successful."})
         except User.DoesNotExist:
-            return Response({'detail': 'Invalid token.'}, status=400)
+            return Response({"detail": "Invalid token."}, status=400)
+
 
 class AdminPasswordResetView(APIView):  # Admin-only override
     permission_classes = [IsSuperAdmin]
@@ -249,15 +267,15 @@ class AdminPasswordResetView(APIView):  # Admin-only override
     def post(self, request, user_id):
         try:
             user = User.objects.get(id=user_id)
-            new_password = request.data.get('new_password')
+            new_password = request.data.get("new_password")
             if not new_password:
-                return Response({'detail': 'New password required.'}, status=400)
+                return Response({"detail": "New password required."}, status=400)
             user.set_password(new_password)
             user.save()
             # Optionally email user
-            return Response({'message': f'Password reset for {user.email}.'})
+            return Response({"message": f"Password reset for {user.email}."})
         except User.DoesNotExist:
-            return Response({'detail': 'User not found.'}, status=404)
+            return Response({"detail": "User not found."}, status=404)
 
 
 # ==================== User ViewSet ====================
@@ -299,10 +317,9 @@ class UserViewSet(viewsets.ModelViewSet):
         elif self.request.user.role == UserRole.CASHIER:
             return User.objects.filter(id=self.request.user.id)
         return User.objects.none()
-    
 
     def get_serializer_class(self):
-        if self.action == 'create':
+        if self.action == "create":
             return UserCreateSerializer
         return UserSerializer
 
@@ -317,28 +334,31 @@ class UserViewSet(viewsets.ModelViewSet):
             )
         else:
             raise PermissionDenied("You cannot create users.")
-    
 
     def perform_update(self, serializer):
         # Prevent non-superadmins from changing role/shop
         if self.request.user.role != UserRole.SUPER_ADMIN:
-            serializer.validated_data.pop('role', None)
-            serializer.validated_data.pop('shop', None)
+            serializer.validated_data.pop("role", None)
+            serializer.validated_data.pop("shop", None)
         serializer.save()
 
 
 @api_view(["POST"])
+@permission_classes([AllowAny])
 def resend_confirmation_email(request):
     """Resend confirmation email for inactive accounts."""
     email = request.data.get("email")
 
     if not email:
         return Response(
-            {"detail": "Email address is required."}, status=status.HTTP_400_BAD_REQUEST
+            {"detail": "Email address is required.", "error_type": "email_required"},
+            status=status.HTTP_400_BAD_REQUEST,
         )
 
+    email_lower = email.lower().strip()
+
     try:
-        user = User.objects.get(email=email.lower())
+        user = User.objects.get(email=email_lower)
 
         if user.is_active:
             return Response(
@@ -349,41 +369,24 @@ def resend_confirmation_email(request):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Generate new verification token
+        # Generate a new verification token (overwrite any old one)
         verification_token = str(uuid.uuid4())
         user.verification_token = verification_token
-        user.save()
+        user.save(update_fields=["verification_token"])
 
-        # Send confirmation email
-        try:
-            verification_url = (
-                f"{settings.FRONTEND_URL}/verify-email/{verification_token}/"
-            )
-            send_mail(
-                subject="Verify Your SHOP Manager Account",
-                message=f"Please verify your email by clicking this link: {verification_url}",
-                from_email=settings.DEFAULT_FROM_EMAIL,
-                recipient_list=[user.email],
-                fail_silently=False,
-            )
 
-            return Response(
-                {
-                    "message": "Confirmation email sent successfully. Please check your inbox.",
-                    "email_sent": True,
-                },
-                status=status.HTTP_200_OK,
-            )
+        # Queue the async email task
+        send_verification_email.delay(user.email, verification_token)
 
-        except Exception as e:
-            logger.error(f"Failed to send confirmation email to {email}: {str(e)}")
-            return Response(
-                {
-                    "detail": "Failed to send confirmation email. Please try again later.",
-                    "error_type": "email_send_failed",
-                },
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
+        logger.info(f"Resend verification email queued for {user.email}")
+
+        return Response(
+            {
+                "message": "Confirmation email sent successfully. Please check your inbox.",
+                "email_sent": True,
+            },
+            status=status.HTTP_200_OK,
+        )
 
     except User.DoesNotExist:
         return Response(
@@ -392,4 +395,13 @@ def resend_confirmation_email(request):
                 "error_type": "user_not_found",
             },
             status=status.HTTP_404_NOT_FOUND,
+        )
+    except Exception as e:
+        logger.error(f"Unexpected error in resend_confirmation_email: {str(e)}")
+        return Response(
+            {
+                "detail": "An unexpected error occurred. Please try again later.",
+                "error_type": "server_error",
+            },
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
