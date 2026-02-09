@@ -1,5 +1,6 @@
 import uuid
 from django.db import models
+from django.utils import timezone
 from phonenumber_field.modelfields import PhoneNumberField  # type: ignore
 
 
@@ -253,6 +254,30 @@ class Brand(models.Model):
         return self.name
 
 
+class VehicleMake(models.Model):
+    name = models.CharField(max_length=100, unique=True)
+
+    def __str__(self):
+        return self.name
+
+
+class VehicleModel(models.Model):
+    make = models.ForeignKey(
+        VehicleMake, on_delete=models.CASCADE, related_name="models"
+    )
+    name = models.CharField(max_length=100)
+    year_start = models.PositiveIntegerField()
+    year_end = models.PositiveIntegerField(null=True, blank=True)
+
+    class Meta:
+        unique_together = ("make", "name", "year_start")
+
+    def __str__(self):
+        return (
+            f"{self.make} {self.name} ({self.year_start}-{self.year_end or 'Present'})"
+        )
+
+
 # =============================================================================
 # MODEL: Product
 # =============================================================================
@@ -287,8 +312,8 @@ class Product(models.Model):
     shop = models.ForeignKey("Shop", on_delete=models.CASCADE, related_name="products")
 
     # Compatibility – simple text field for MVP (can be normalized later)
-    compatible_vehicles = models.TextField(
-        blank=True, help_text="e.g. Toyota Corolla 2015–2020, Honda Civic 2016–2022"
+    compatible_vehicles = models.ManyToManyField(
+        VehicleModel, blank=True, help_text="Compatible vehicle models for this part"
     )
 
     cost_price = models.DecimalField(max_digits=12, decimal_places=2)
@@ -380,6 +405,11 @@ class Stock(models.Model):
         auto_now=True, help_text="The date and time the stock was last updated."
     )
 
+    @property
+    def is_low_stock(self):
+        return self.quantity <= self.product.reorder_level
+        
+
     def __str__(self):
         """
         Returns a string representation of the stock for the associated product.
@@ -395,6 +425,58 @@ class Stock(models.Model):
             # Index on the last_updated field
             models.Index(fields=["quantity"]),
         ]
+
+
+class StockTransaction(models.Model):
+    """
+    Immutable audit trail for every stock movement.
+    Ensures traceability, reporting, and safe reversals.
+    """
+
+    TYPE_CHOICES = [
+        ("purchase", "Stock In - Purchase"),
+        ("sale", "Stock Out - Sale"),
+        ("adjustment", "Manual Adjustment"),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    stock = models.ForeignKey(
+        Stock,
+        on_delete=models.PROTECT,  # Never delete transactions
+        related_name="transactions",
+    )
+    type = models.CharField(max_length=20, choices=TYPE_CHOICES, db_index=True)
+    quantity_change = models.IntegerField()  # + for in, - for out
+    reason = models.CharField(max_length=255, blank=True)
+    reference = models.CharField(
+        max_length=100,
+        blank=True,
+        help_text="e.g. Purchase UUID, Sale UUID, or 'Initial stock'",
+    )
+    created_by = models.ForeignKey(
+        "accounts.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name="stock_transactions",
+    )
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["stock", "-created_at"]),
+            models.Index(fields=["type"]),
+            models.Index(fields=["created_at"]),
+        ]
+
+    def __str__(self):
+        return f"{self.get_type_display()} {self.quantity_change:+d} → {self.stock.product.name}"
+
+    @property
+    def new_quantity(self):
+        """Convenient property for reporting – quantity after this transaction"""
+        # This is approximate – for exact, query ordered transactions
+        return self.stock.quantity  # Current after all transactions
 
 
 # =============================================================================
