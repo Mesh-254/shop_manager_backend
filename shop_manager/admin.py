@@ -115,6 +115,7 @@ class ProductAdmin(ShopScopedAdmin):
     list_display = ('name', 'category', 'cost_price', 'selling_price', 'shop')
     search_fields = ('name',)  # Removed 'sku', 'brand'
     list_filter = ('category', 'shop')  # Removed 'brand'
+    list_per_page = 25  # Limit pagination
 
 
 @admin.register(Stock)
