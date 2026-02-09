@@ -15,11 +15,13 @@ from .signals import recalculate_purchase_total
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import filters
 from rest_framework.permissions import IsAuthenticated
-from .permissions import IsCashierOrHigher
+from .permissions import IsCashierOrHigher, IsInSameShop, IsShopAdmin
 from rest_framework.decorators import action
+from .utils import update_stock
 
 
 # ==================== SubscriptionPlan ViewSet ====================
+
 
 class SubscriptionPlanViewSet(viewsets.ModelViewSet):
     """
@@ -32,11 +34,13 @@ class SubscriptionPlanViewSet(viewsets.ModelViewSet):
 
 # ==================== Shop ViewSet ====================
 
+
 class ShopViewSet(viewsets.ModelViewSet):
     """
     A viewset for viewing and editing Shop instances.
     It supports GET, POST, PUT, PATCH, and DELETE operations.
     """
+
     queryset = Shop.objects.all()
     serializer_class = ShopSerializer
     # Enable file upload handling
@@ -47,7 +51,7 @@ class ShopViewSet(viewsets.ModelViewSet):
         Custom method to handle the creation of a shop.
         Validates the image and assigns the owner as the currently authenticated user.
         """
-        logo = self.request.FILES.get('logo', None)
+        logo = self.request.FILES.get("logo", None)
 
         # Image validation: size and format checks
         if logo:
@@ -62,7 +66,7 @@ class ShopViewSet(viewsets.ModelViewSet):
         Custom method to handle the update of a shop, including image deletion and validation.
         """
         # Handle logo (image) field
-        logo = self.request.FILES.get('logo', None)
+        logo = self.request.FILES.get("logo", None)
 
         # Image validation: size and format checks
         if logo:
@@ -84,18 +88,20 @@ class ShopViewSet(viewsets.ModelViewSet):
         Validates the uploaded image to check its file size and type.
         """
         max_size = 5 * 1024 * 1024  # 5MB file size limit
-        allowed_extensions = ['jpg', 'jpeg', 'png']
+        allowed_extensions = ["jpg", "jpeg", "png"]
 
         # Check the image file size
         if image.size > max_size:
             raise ValidationError(
-                f"File size exceeds the {max_size // (1024 * 1024)}MB limit.")
+                f"File size exceeds the {max_size // (1024 * 1024)}MB limit."
+            )
 
         # Check the image file extension
-        extension = image.name.split('.')[-1].lower()
+        extension = image.name.split(".")[-1].lower()
         if extension not in allowed_extensions:
             raise ValidationError(
-                "Invalid file type. Only .jpg, .jpeg, and .png files are allowed.")
+                "Invalid file type. Only .jpg, .jpeg, and .png files are allowed."
+            )
 
     def delete_old_logo(self, old_logo):
         """
@@ -107,11 +113,11 @@ class ShopViewSet(viewsets.ModelViewSet):
                 if default_storage.exists(old_logo.name):
                     default_storage.delete(old_logo.name)
             except Exception as e:
-                raise DjangoValidationError(
-                    f"Error deleting old logo: {str(e)}")
+                raise DjangoValidationError(f"Error deleting old logo: {str(e)}")
 
 
 # ==================== Category ViewSet ====================
+
 
 class CategoryViewSet(viewsets.ModelViewSet):
     queryset = Category.objects.all()
@@ -131,6 +137,7 @@ class SupplierViewSet(viewsets.ModelViewSet):
 
 
 # ==================== Product ViewSet ====================
+
 
 class ProductViewSet(viewsets.ModelViewSet):
     """
@@ -152,45 +159,45 @@ class ProductViewSet(viewsets.ModelViewSet):
     • Soft delete (discontinue with reason)
     • Basic history endpoint (extendable)
     """
+
     queryset = Product.objects.select_related(
-        'category', 'brand', 'supplier', 'shop', 'created_by'
-    ).prefetch_related('stock')
+        "category", "brand", "supplier", "shop", "created_by"
+    ).prefetch_related("stock")
 
     permission_classes = [IsAuthenticated, IsCashierOrHigher]
 
     filter_backends = [
         DjangoFilterBackend,
         filters.SearchFilter,
-        filters.OrderingFilter
+        filters.OrderingFilter,
     ]
 
     search_fields = [
-
-        'name',
-        'description',
-        'compatible_vehicles',
-        'brand__name',
-        'category__name',
-        'supplier__name',
+        "name",
+        "description",
+        "compatible_vehicles",
+        "brand__name",
+        "category__name",
+        "supplier__name",
     ]
 
     ordering_fields = [
-        'name',
-        'selling_price',
-        'cost_price',
-        'reorder_level',
-        'created_at',
+        "name",
+        "selling_price",
+        "cost_price",
+        "reorder_level",
+        "created_at",
         # if you expose stock in ordering, use annotation or property
     ]
 
-    ordering = ['name']
+    ordering = ["name"]
 
     def get_serializer_class(self):
-        if self.action == 'list':
+        if self.action == "list":
             return ProductListSerializer
-        if self.action == 'retrieve':
+        if self.action == "retrieve":
             return ProductDetailSerializer
-        if self.action in ['create', 'update', 'partial_update']:
+        if self.action in ["create", "update", "partial_update"]:
             return ProductWriteSerializer
         return super().get_serializer_class()
 
@@ -199,64 +206,69 @@ class ProductViewSet(viewsets.ModelViewSet):
         user = self.request.user
 
         # SuperAdmin sees everything
-        if user.role == 'SuperAdmin':
+        if user.role == "SuperAdmin":
             return qs
 
         # Filter by shop
-        if hasattr(user, 'shop') and user.shop:
+        if hasattr(user, "shop") and user.shop:
             qs = qs.filter(shop=user.shop)
         else:
             return qs.none()
 
         # Cashiers usually shouldn't see discontinued items
-        if user.role == 'Cashier':
+        if user.role == "Cashier":
             qs = qs.filter(is_active=True, is_discontinued=False)
 
         return qs
 
-    @action(detail=False, methods=['get'], url_path='low-stock')
+    @action(detail=False, methods=["get"], url_path="low-stock")
     def low_stock(self, request):
         """List products that are at or below reorder level"""
-        qs = self.get_queryset().filter(
-            is_active=True,
-            is_discontinued=False
-        ).filter(
-            stock__quantity__lte=models.F('reorder_level')
+        qs = (
+            self.get_queryset()
+            .filter(is_active=True, is_discontinued=False)
+            .filter(stock__quantity__lte=models.F("reorder_level"))
         )
         serializer = ProductListSerializer(qs, many=True)
         return Response(serializer.data)
 
-    @action(detail=True, methods=['post'], url_path='discontinue')
+    @action(detail=True, methods=["post"], url_path="discontinue")
     def discontinue(self, request, pk=None):
         """Mark product as discontinued (soft delete)"""
         product = self.get_object()
 
-        if request.user.role not in ('SuperAdmin', 'ShopAdmin'):
+        if request.user.role not in ("SuperAdmin", "ShopAdmin"):
             return Response(
                 {"detail": "Only admins can discontinue products."},
-                status=status.HTTP_403_FORBIDDEN
+                status=status.HTTP_403_FORBIDDEN,
             )
 
-        reason = request.data.get('reason', '').strip()
+        reason = request.data.get("reason", "").strip()
         if not reason:
-            raise serializers.ValidationError({"reason": "Discontinue reason is required."})
+            raise serializers.ValidationError(
+                {"reason": "Discontinue reason is required."}
+            )
 
         product.is_discontinued = True
         product.is_active = False
         product.discontinued_reason = reason
         product.discontinued_at = timezone.now()
-        product.save(update_fields=[
-            'is_discontinued', 'is_active',
-            'discontinued_reason', 'discontinued_at'
-        ])
+        product.save(
+            update_fields=[
+                "is_discontinued",
+                "is_active",
+                "discontinued_reason",
+                "discontinued_at",
+            ]
+        )
 
         return Response(ProductDetailSerializer(product).data)
 
     def perform_create(self, serializer):
         # Automatically set shop and creator
         serializer.save(
-            shop=self.request.user.shop if hasattr(self.request.user, 'shop') else None,
-            created_by=self.request.user
+            shop=self.request.user.shop if hasattr(self.request.user, "shop") else None,
+            created_by=self.request.user,
         )
 
     def perform_destroy(self, instance):
@@ -265,16 +277,51 @@ class ProductViewSet(viewsets.ModelViewSet):
             "Products cannot be hard-deleted. Use the /discontinue/ action instead."
         )
 
+
 # ==================== Category ViewSet ====================
 
 
-class StockViewSet(viewsets.ModelViewSet):
+class StockViewSet(viewsets.ReadOnlyModelViewSet):
+    queryset = Stock.objects.select_related(
+        "product", "product__category"
+    ).prefetch_related("transactions")
+    serializer_class = StockSerializer
+    permission_classes = [IsCashierOrHigher & IsInSameShop]
+
+    @action(detail=True, methods=["post"], permission_classes=[IsShopAdmin])
+    def adjust(self, request, pk=None):
+        stock = self.get_object()
+        quantity_change = request.data['quantity_change']
+        reason = request.data.get('reason', '')
+
+        try:
+            update_stock(
+                product=stock.product,
+                quantity_change=quantity_change,
+                transaction_type='adjustment',
+                reason=reason or 'Manual adjustment',
+                reference=f"Manual by {request.user}",
+                user=request.user
+            )
+        except ValidationError as e:
+            return Response({"detail": str(e)}, status=400)
+
+        return Response(StockSerializer(stock).data)
+
+
+class StockTransactionViewSet(viewsets.ReadOnlyModelViewSet):
     """
-    A viewset for viewing and editing Stock instances.
+    Read-only history of all stock movements for reporting.
     """
 
-    queryset = Stock.objects.all()
-    serializer_class = StockSerializer
+    queryset = StockTransaction.objects.select_related("stock__product", "created_by")
+    serializer_class = StockTransactionSerializer
+    permission_classes = [IsCashierOrHigher, IsInSameShop]
+
+    filter_backends = [DjangoFilterBackend, filters.OrderingFilter]
+    filterset_fields = ["type", "stock__product"]
+    ordering_fields = ["created_at"]
+    ordering = ["-created_at"]
 
 
 # ==================== Purchase ViewSet ====================
@@ -294,11 +341,11 @@ class PurchaseViewSet(viewsets.ModelViewSet):
     """
 
     queryset = Purchase.objects.prefetch_related(
-        'items__product'  # Load all related purchase items and their products
+        "items__product"  # Load all related purchase items and their products
     ).select_related(
-        'shop',  # Load the shop in a single query
-        'supplier',  # Load the supplier in a single query
-        'created_by'  # Load the user who created the purchase
+        "shop",  # Load the shop in a single query
+        "supplier",  # Load the supplier in a single query
+        "created_by",  # Load the user who created the purchase
     )
     serializer_class = PurchaseSerializer
     # permission_classes = [IsShopOwnerOrReadOnly]  # (Optional) Set who is allowed to access this
@@ -324,45 +371,49 @@ class PurchaseViewSet(viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
 
         # Step 2: Remove the 'items' from validated data, to handle separately
-        items_data = serializer.validated_data.pop('items')
+        items_data = serializer.validated_data.pop("items")
 
         # Step 3: Start a database transaction
         with transaction.atomic():
             # Create the Purchase record (excluding the purchase items for now)
             purchase = Purchase.objects.create(
-                **serializer.validated_data, total_amount=Decimal(0.00))
+                **serializer.validated_data, total_amount=Decimal(0.00)
+            )
 
             # Step 4: Prepare to create multiple PurchaseItem records
             purchase_items = []  # List to hold PurchaseItem objects
-            stock_updates = []   # List to hold Stock updates for each product
+            stock_updates = []  # List to hold Stock updates for each product
 
             # Step 5: Loop through each item to create purchase items and update stock
             for item_data in items_data:
                 # Get the actual Product instance
-                product = Product.objects.get(pk=item_data['product'].pk)
+                product = Product.objects.get(pk=item_data["product"].pk)
 
                 # Get the unit cost price for the item (use existing product price if not provided)
-                unit_cost_price = Decimal(item_data.get(
-                    'unit_cost_price', product.cost_price))
+                unit_cost_price = Decimal(
+                    item_data.get("unit_cost_price", product.cost_price)
+                )
 
                 # Create a PurchaseItem object (but don't save yet)
-                purchase_items.append(PurchaseItem(
-                    purchase=purchase,
-                    product=product,
-                    quantity=item_data['quantity'],
-                    unit_cost_price=unit_cost_price
-                ))
+                purchase_items.append(
+                    PurchaseItem(
+                        purchase=purchase,
+                        product=product,
+                        quantity=item_data["quantity"],
+                        unit_cost_price=unit_cost_price,
+                    )
+                )
 
                 # Update the Stock quantity for the product
                 stock, _ = Stock.objects.get_or_create(product=product)
-                stock.quantity += item_data['quantity']
+                stock.quantity += item_data["quantity"]
                 stock_updates.append(stock)
 
             # Step 6: Save all Purchase Items at once (bulk create = very fast)
             PurchaseItem.objects.bulk_create(purchase_items)
 
             # Step 7: Save all updated Stock records at once (bulk update = very fast)
-            Stock.objects.bulk_update(stock_updates, ['quantity'])
+            Stock.objects.bulk_update(stock_updates, ["quantity"])
 
             # Step 8: Update the total cost of the purchase
             recalculate_purchase_total(purchase)
@@ -387,19 +438,20 @@ class PurchaseViewSet(viewsets.ModelViewSet):
         instance = self.get_object()
 
         # Step 2: Define which fields are allowed to be updated
-        allowed_fields = {'payment_status', 'payment_method', 'supplier'}
+        allowed_fields = {"payment_status", "payment_method", "supplier"}
         incoming_keys = set(request.data.keys())
 
         # Step 3: Check if the user is trying to update anything else (not allowed)
         if not incoming_keys.issubset(allowed_fields):
             return Response(
-                {"detail": "Only payment_status, payment_method, and supplier can be updated."},
-                status=status.HTTP_400_BAD_REQUEST
+                {
+                    "detail": "Only payment_status, payment_method, and supplier can be updated."
+                },
+                status=status.HTTP_400_BAD_REQUEST,
             )
 
         # Step 4: Validate and save the updated data
-        serializer = self.get_serializer(
-            instance, data=request.data, partial=True)
+        serializer = self.get_serializer(instance, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         self.perform_update(serializer)
 
@@ -413,24 +465,52 @@ class PurchaseViewSet(viewsets.ModelViewSet):
     #     """
     #     return Response({'detail': 'Deleting purchases is disabled.'}, status=status.HTTP_403_FORBIDDEN)
 
+
 # ==================== PurchaseItems ViewSet ====================
 
 
-class PurchaseItemsViewSet(viewsets.ModelViewSet):
-    """
-    A ViewSet to manage Purchase Items separately.
-
-    What it does:
-    - Allows viewing list of all Purchase Items.
-    - Allows retrieving a single Purchase Item.
-    - Allows editing/updating a Purchase Item.
-    - Allows deleting a Purchase Item.
-
-    (Advanced usage: Usually not edited separately unless correcting mistakes)
-    """
-
-    queryset = PurchaseItem.objects.all()
+class PurchaseItemViewSet(viewsets.ModelViewSet):
+    queryset = PurchaseItem.objects.select_related("purchase", "product")
     serializer_class = PurchaseItemSerializer
+    permission_classes = [IsShopAdmin & IsInSameShop]
+
+    def perform_create(self, serializer):
+        item = serializer.save()
+        update_stock(
+            product=item.product,
+            quantity_change=item.quantity,
+            transaction_type="purchase",
+            reason=f"Purchase {item.purchase.id}",
+            reference=str(item.purchase.id),
+            user=self.request.user,
+        )
+
+    def perform_update(self, serializer):
+        old_item = self.get_object()
+        old_qty = old_item.quantity
+        item = serializer.save()
+        diff = item.quantity - old_qty
+
+        if diff != 0:
+            update_stock(
+                product=item.product,
+                quantity_change=diff,
+                transaction_type="purchase",
+                reason=f"Purchase update {item.purchase.id}",
+                reference=str(item.purchase.id),
+                user=self.request.user,
+            )
+
+    def perform_destroy(self, instance):
+        update_stock(
+            product=instance.product,
+            quantity_change=-instance.quantity,
+            transaction_type="purchase",
+            reason=f"Purchase item deleted {instance.purchase.id}",
+            reference=str(instance.purchase.id),
+            user=self.request.user,
+        )
+        instance.delete()
 
 
 # ==================== SaleViewSet ====================
@@ -450,23 +530,54 @@ class SaleViewSet(viewsets.ModelViewSet):
         # Validate and create the sale and its items
         if serializer.is_valid():
             sale = serializer.save()
-            return Response(self.get_serializer(sale).data, status=status.HTTP_201_CREATED)
+            return Response(
+                self.get_serializer(sale).data, status=status.HTTP_201_CREATED
+            )
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
-class SaleItemsViewSet(viewsets.ModelViewSet):
-    queryset = SaleItem.objects.all()
+class SaleItemViewSet(viewsets.ModelViewSet):
+    queryset = SaleItem.objects.select_related("sale", "product")
     serializer_class = SaleItemSerializer
+    permission_classes = [IsCashierOrHigher & IsInSameShop]
 
-    def create(self, request, *args, **kwargs):
-        """
-        Create a SaleItem and update the stock accordingly.
-        """
-        data = request.data
-        serializer = self.get_serializer(data=data)
+    def perform_create(self, serializer):
+        item = serializer.save()
+        try:
+            update_stock(
+                product=item.product,
+                quantity_change=-item.quantity,
+                transaction_type="sale",
+                reason=f"Sale {item.sale.id}",
+                reference=str(item.sale.id),
+                user=self.request.user,
+            )
+        except ValidationError as e:
+            raise ValidationError({"detail": str(e)})
 
-        # Validate and create the sale item
-        if serializer.is_valid():
-            sale_item = serializer.save()
-            return Response(self.get_serializer(sale_item).data, status=status.HTTP_201_CREATED)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    def perform_update(self, serializer):
+        old_item = self.get_object()
+        old_qty = old_item.quantity
+        item = serializer.save()
+        diff = old_qty - item.quantity  # Positive = returning to stock
+
+        if diff != 0:
+            update_stock(
+                product=item.product,
+                quantity_change=diff,
+                transaction_type="sale",
+                reason=f"Sale update {item.sale.id}",
+                reference=str(item.sale.id),
+                user=self.request.user,
+            )
+
+    def perform_destroy(self, instance):
+        update_stock(
+            product=instance.product,
+            quantity_change=instance.quantity,  # Return to stock
+            transaction_type="sale",
+            reason=f"Sale item cancelled {instance.sale.id}",
+            reference=str(instance.sale.id),
+            user=self.request.user,
+        )
+        instance.delete()
