@@ -11,10 +11,11 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 from django.db import transaction
-from .signals import recalculate_purchase_total
+from .signals import recalculate_average_cost, recalculate_purchase_total
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import filters
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.authentication import SessionAuthentication
 from .permissions import IsCashierOrHigher, IsInSameShop, IsShopAdmin
 from rest_framework.decorators import action
 from .utils import update_stock
@@ -287,21 +288,22 @@ class StockViewSet(viewsets.ReadOnlyModelViewSet):
     ).prefetch_related("transactions")
     serializer_class = StockSerializer
     permission_classes = [IsCashierOrHigher & IsInSameShop]
+    permission_classes = [IsAuthenticated, IsCashierOrHigher, IsInSameShop]
 
     @action(detail=True, methods=["post"], permission_classes=[IsShopAdmin])
     def adjust(self, request, pk=None):
         stock = self.get_object()
-        quantity_change = request.data['quantity_change']
-        reason = request.data.get('reason', '')
+        quantity_change = request.data["quantity_change"]
+        reason = request.data.get("reason", "")
 
         try:
             update_stock(
                 product=stock.product,
                 quantity_change=quantity_change,
-                transaction_type='adjustment',
-                reason=reason or 'Manual adjustment',
+                transaction_type="adjustment",
+                reason=reason or "Manual adjustment",
                 reference=f"Manual by {request.user}",
-                user=request.user
+                user=request.user,
             )
         except ValidationError as e:
             return Response({"detail": str(e)}, status=400)
@@ -340,15 +342,31 @@ class PurchaseViewSet(viewsets.ModelViewSet):
     - When listing purchases, also pre-load related shop, supplier, creator, and items with their products for speed.
     """
 
-    queryset = Purchase.objects.prefetch_related(
-        "items__product"  # Load all related purchase items and their products
-    ).select_related(
-        "shop",  # Load the shop in a single query
-        "supplier",  # Load the supplier in a single query
-        "created_by",  # Load the user who created the purchase
+    queryset = (
+        Purchase.objects.select_related("shop", "supplier", "created_by")
+        .prefetch_related(
+            "items__product"  # Load all related purchase items and their products
+        )
+        .select_related(
+            "shop",  # Load the shop in a single query
+            "supplier",  # Load the supplier in a single query
+            "created_by",  # Load the user who created the purchase
+        )
     )
     serializer_class = PurchaseSerializer
-    # permission_classes = [IsShopOwnerOrReadOnly]  # (Optional) Set who is allowed to access this
+    authentication_classes = [
+        SessionAuthentication
+    ]  # Critical for session auth from template
+    permission_classes = [
+        IsAuthenticated,
+        IsCashierOrHigher,
+        IsShopAdmin,
+    ]  # Adjust if cashiers can purchase
+
+    def get_queryset(self):
+        if self.request.user.role == "SuperAdmin":
+            return self.queryset.all()
+        return self.queryset.filter(shop=self.request.user.shop)
 
     def create(self, request, *args, **kwargs):
         """
@@ -372,6 +390,11 @@ class PurchaseViewSet(viewsets.ModelViewSet):
 
         # Step 2: Remove the 'items' from validated data, to handle separately
         items_data = serializer.validated_data.pop("items")
+
+        # Auto-set created_by and shop (existing code)
+        serializer.validated_data["created_by"] = request.user
+        if request.user.role == "ShopAdmin":
+            serializer.validated_data["shop"] = request.user.shop
 
         # Step 3: Start a database transaction
         with transaction.atomic():
@@ -401,16 +424,27 @@ class PurchaseViewSet(viewsets.ModelViewSet):
                         product=product,
                         quantity=item_data["quantity"],
                         unit_cost_price=unit_cost_price,
+                        brand=item_data.get("brand"),
                     )
                 )
 
-                # Update the Stock quantity for the product
-                stock, _ = Stock.objects.get_or_create(product=product)
-                stock.quantity += item_data["quantity"]
-                stock_updates.append(stock)
+                # Use update_stock instead of manual increment
+                update_stock(
+                    product=product,
+                    quantity_change=item_data["quantity"],
+                    transaction_type="purchase",
+                    reason=f"New purchase item added (Purchase #{purchase.id})",
+                    reference=str(purchase.id),
+                    user=request.user,
+                )
 
             # Step 6: Save all Purchase Items at once (bulk create = very fast)
             PurchaseItem.objects.bulk_create(purchase_items)
+
+            # Recalculate weighted average cost for all affected products (bulk_create bypasses signals)
+            affected_products = {item.product for item in purchase_items if item.product}
+            for product in affected_products:
+                recalculate_average_cost(product)
 
             # Step 7: Save all updated Stock records at once (bulk update = very fast)
             Stock.objects.bulk_update(stock_updates, ["quantity"])
@@ -458,59 +492,20 @@ class PurchaseViewSet(viewsets.ModelViewSet):
         # Step 5: Return the updated Purchase
         return Response(serializer.data)
 
-    # Optional: You can prevent deleting purchases altogether by uncommenting this:
-    # def destroy(self, request, *args, **kwargs):
-    #     """
-    #     Disable deleting purchases completely.
-    #     """
-    #     return Response({'detail': 'Deleting purchases is disabled.'}, status=status.HTTP_403_FORBIDDEN)
+    @transaction.atomic
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        instance.delete()  # Signals now handle stock reversal
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 # ==================== PurchaseItems ViewSet ====================
-
-
 class PurchaseItemViewSet(viewsets.ModelViewSet):
     queryset = PurchaseItem.objects.select_related("purchase", "product")
     serializer_class = PurchaseItemSerializer
-    permission_classes = [IsShopAdmin & IsInSameShop]
+    permission_classes = [IsShopAdmin, IsCashierOrHigher]
 
-    def perform_create(self, serializer):
-        item = serializer.save()
-        update_stock(
-            product=item.product,
-            quantity_change=item.quantity,
-            transaction_type="purchase",
-            reason=f"Purchase {item.purchase.id}",
-            reference=str(item.purchase.id),
-            user=self.request.user,
-        )
 
-    def perform_update(self, serializer):
-        old_item = self.get_object()
-        old_qty = old_item.quantity
-        item = serializer.save()
-        diff = item.quantity - old_qty
-
-        if diff != 0:
-            update_stock(
-                product=item.product,
-                quantity_change=diff,
-                transaction_type="purchase",
-                reason=f"Purchase update {item.purchase.id}",
-                reference=str(item.purchase.id),
-                user=self.request.user,
-            )
-
-    def perform_destroy(self, instance):
-        update_stock(
-            product=instance.product,
-            quantity_change=-instance.quantity,
-            transaction_type="purchase",
-            reason=f"Purchase item deleted {instance.purchase.id}",
-            reference=str(instance.purchase.id),
-            user=self.request.user,
-        )
-        instance.delete()
 
 
 # ==================== SaleViewSet ====================
