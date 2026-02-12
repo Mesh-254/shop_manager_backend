@@ -1,0 +1,356 @@
+{% load static %}
+
+<!doctype html>
+<html lang="en" class="h-full bg-gray-50">
+
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Add New Sale</title>
+    <!-- Tailwind CSS CDN (dev only – replace with build in production) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Select2 CSS + JS CDN for searchable dropdowns -->
+    <link
+      href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css"
+      rel="stylesheet"
+    />
+    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              primary: "#1d4ed8",
+              success: "#16a34a",
+            },
+          },
+        },
+      };
+    </script>
+  </head>
+
+  <body class="h-full">
+    <div class="min-h-full flex flex-col">
+      <!-- Header Bar -->
+      <div class="bg-primary text-white py-4 px-8 shadow-md">
+        <div class="max-w-7xl mx-auto flex justify-between items-center">
+          <h1 class="text-2xl font-bold">Add New Sale</h1>
+          <div class="space-x-4">
+            <a
+              href="{% url 'admin:shop_manager_sale_changelist' %}"
+              class="bg-gray-700 hover:bg-gray-800 text-white font-medium py-2 px-6 rounded-md transition"
+            >
+              Back to List
+            </a>
+            <a
+              href="{% url 'admin:shop_manager_sale_changelist' %}"
+              class="bg-red-600 hover:bg-red-700 text-white font-medium py-2 px-6 rounded-md transition"
+            >
+              Cancel
+            </a>
+          </div>
+        </div>
+      </div>
+
+      <!-- Main Form -->
+      <div class="flex-grow flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
+        <div class="max-w-6xl w-full bg-white p-10 rounded-xl shadow-lg">
+          <form id="saleForm" class="space-y-10">
+            {% csrf_token %}
+
+            <!-- Sale Details -->
+            <div class="border-b border-gray-200 pb-8">
+              <h2 class="text-2xl font-semibold text-gray-800 mb-6">
+                Sale Details
+              </h2>
+              <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                <!-- Sale Date -->
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 mb-1">
+                    Sale Date *
+                  </label>
+                  <input
+                    type="date"
+                    id="sale_date"
+                    value="{% now 'Y-m-d' %}"
+                    required
+                    class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary h-11 px-3 border"
+                  />
+                </div>
+
+                <!-- Payment Status -->
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 mb-1">
+                    Payment Status *
+                  </label>
+                  <select
+                    id="payment_status"
+                    required
+                    class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary h-11 px-3 border"
+                  >
+                    <option value="">-- Select status --</option>
+                    <option value="Paid">Paid</option>
+                    <option value="Pending">">Pending</option>
+                    <option value="Cancelled">Cancelled</option>
+                  </select>
+                </div>
+
+                <!-- Payment Method -->
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 mb-1">
+                    Payment Method *
+                  </label>
+                  <select
+                    id="payment_method"
+                    required
+                    class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary h-11 px-3 border"
+                  >
+                    <option value="">-- Select method --</option>
+                    <option value="Cash">Cash</option>
+                    <option value="M-Pesa">M-Pesa</option>
+                    <option value="Card">Card</option>
+                    <option value="Bank Transfer">Bank Transfer</option>
+                  </select>
+                </div>
+
+                <!-- Discount -->
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 mb-1">
+                    Discount (KES)
+                  </label>
+                  <input
+                    type="number"
+                    id="discount"
+                    value="0"
+                    min="0"
+                    step="0.01"
+                    class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary h-11 px-3 border"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <!-- Sale Items -->
+            <div>
+              <div class="flex justify-between items-center mb-6">
+                <h2 class="text-2xl font-semibold text-gray-800">
+                  Sale Items
+                </h2>
+                <button
+                  type="button"
+                  id="addItemBtn"
+                  class="bg-primary hover:bg-blue-700 text-white font-medium py-2 px-5 rounded-md transition shadow-sm"
+                >
+                  + Add Item
+                </button>
+              </div>
+
+              <div class="overflow-x-auto border border-gray-200 rounded-lg">
+                <table class="w-full min-w-max">
+                  <thead class="bg-gray-50 text-gray-700 font-medium text-left">
+                    <tr>
+                      <th class="px-6 py-4">#</th>
+                      <th class="px-6 py-4 w-96">Product</th>
+                      <th class="px-6 py-4 text-right">Quantity</th>
+                      <th class="px-6 py-4 text-right">Unit Price (KES)</th>
+                      <th class="px-6 py-4 text-right">Subtotal (KES)</th>
+                      <th class="px-6 py-4"></th>
+                    </tr>
+                  </thead>
+                  <tbody id="itemsBody" class="divide-y divide-gray-200"></tbody>
+                  <tfoot class="bg-gray-50 font-bold text-lg">
+                    <tr>
+                      <td colspan="4" class="px-6 py-4 text-right">Grand Total (KES):</td>
+                      <td id="grandTotal" class="px-6 py-4 text-right text-success">0.00</td>
+                      <td></td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+
+              <div class="mt-8 flex justify-end">
+                <button
+                  type="submit"
+                  class="bg-success hover:bg-green-700 text-white font-semibold py-3 px-10 rounded-lg transition shadow-lg text-lg"
+                >
+                  Create Sale
+                </button>
+              </div>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      // Product data passed from view
+      window.productOptions = {{ products|safe }}.map(p => ({
+        id: p.id,
+        text: `${p.name} (Stock: ${p.stock_qty || 0})`,
+        price: parseFloat(p.selling_price) || 0,
+        stock: parseInt(p.stock_qty) || 0
+      }));
+
+      // Row counter
+      let rowCounter = 0;
+
+      function addItemRow() {
+        rowCounter++;
+        const row = document.createElement('tr');
+        row.innerHTML = `
+          <td class="px-6 py-4 text-gray-600">${rowCounter}</td>
+          <td class="px-6 py-4">
+            <select class="product-select select2 w-full h-11" data-index="${rowCounter}" required></select>
+          </td>
+          <td class="px-6 py-4">
+            <input type="number" min="1" class="quantity w-full text-right rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary h-11 px-3 border" oninput="calculateRow(this)" required />
+          </td>
+          <td class="px-6 py-4">
+            <input type="number" step="0.01" min="0" class="unit219-price w-full text-right rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary h-11 px-3 border" oninput="calculateRow(this)" required />
+          </td>
+          <td class="px-6 py-4 text-right item-total font-medium">0.00</td>
+          <td class="px-6 py-4 text-center">
+            <button type="button" onclick="this.closest('tr').remove(); renumberRows(); calculateTotals()" class="text-red-600 hover:text-red-900 font-medium">Remove</button>
+          </td>
+        `;
+        document.getElementById('itemsBody').appendChild(row);
+
+        // Initialize Select2
+        $(row).find('.product-select').select2({
+          data: window.productOptions,
+          placeholder: "Type to search product...",
+          allowClear: true,
+          width: '100%'
+        }).on('select2:select', function (e) {
+          const data = e.params.data;
+          const row = this.closest('tr');
+          row.querySelector('.unit-price').value = data.price.toFixed(2);
+          row.querySelector('.quantity').max = data.stock;
+          calculateRow(row.querySelector('.quantity'));
+        }).on('select2:clear', function () {
+          const row = this.closest('tr');
+          row.querySelector('.unit-price').value = '';
+          row.querySelector('.quantity').value = '';
+          row.querySelector('.quantity').removeAttribute('max');
+          calculateRow(row.querySelector('.quantity'));
+        });
+      }
+
+      function renumberRows() {
+        rowCounter = 0;
+        document.querySelectorAll('#itemsBody tr').forEach(row => {
+          rowCounter++;
+          row.querySelector('td:first-child').textContent = rowCounter;
+        });
+      }
+
+      function calculateRow(input) {
+        const row = input.closest('tr');
+        const qty = parseFloat(row.querySelector('.quantity').value) || 0;
+        const price = parseFloat(row.querySelector('.unit-price').value) || 0;
+        const total = qty * price;
+        row.querySelector('.item-total').textContent = total.toFixed(2);
+
+        // Visual warning if quantity > available stock
+        const select = row.querySelector('.product-select');
+        if (select && select.value) {
+          const selected = window.productOptions.find(opt => opt.id === select.value);
+          if (selected && qty > selected.stock) {
+            row.querySelector('.quantity').style.borderColor = '#dc2626';
+            row.querySelector('.quantity').style.backgroundColor = '#fee2e2';
+          } else {
+            row.querySelector('.quantity').style.borderColor = '';
+            row.querySelector('.quantity').style.backgroundColor = '';
+          }
+        }
+
+        calculateTotals();
+      }
+
+      function calculateTotals() {
+        let subtotal = 0;
+        document.querySelectorAll('#itemsBody tr').forEach(row => {
+          subtotal += parseFloat(row.querySelector('.item-total').textContent) || 0;
+        });
+        const discount = parseFloat(document.getElementById('discount').value) || 0;
+        const grand = subtotal - discount;
+        document.getElementById('grandTotal').textContent = grand.toFixed(2);
+      }
+
+      // Add initial row
+      document.getElementById('addItemBtn').addEventListener('click', addItemRow);
+      addItemRow();
+
+      // Recalculate when discount changes
+      document.getElementById('discount').addEventListener('input', calculateTotals);
+
+      // Form Submit
+      document.getElementById('saleForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+
+        const items = [];
+        let hasError = false;
+
+        document.querySelectorAll('#itemsBody tr').forEach(row => {
+          const productSelect = row.querySelector('.product-select');
+          const product = productSelect.value;
+          const quantity = parseInt(row.querySelector('.quantity').value);
+          const unit_price = parseFloat(row.querySelector('.unit-price').value);
+
+          if (product && quantity > 0 && unit_price > 0) {
+            const selectedOption = window.productOptions.find(opt => opt.id === product);
+            if (quantity > selectedOption.stock) {
+              alert(`Quantity for "${selectedOption.text}" exceeds available stock (${selectedOption.stock}).`);
+              hasError = true;
+              return;
+            }
+
+            items.push({
+              product: product,
+              quantity: quantity,
+              unit_selling_price: unit_price
+            });
+          }
+        });
+
+        if (hasError) return;
+
+        if (items.length === 0) {
+          alert('Please add at least one item.');
+          return;
+        }
+
+        const formData = {
+          sale_date: document.getElementById('sale_date').value,
+          payment_status: document.getElementById('payment_status').value,
+          payment_method: document.getElementById('payment_method').value,
+          discount: parseFloat(document.getElementById('discount').value) || 0,
+          items: items
+        };
+
+        try {
+          const response = await fetch('{{ api_url }}', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-CSRFToken': '{{ csrf_token }}',
+            },
+            credentials: 'include',
+            body: JSON.stringify(formData)
+          });
+
+          if (response.ok) {
+            alert('Sale created successfully!');
+            window.location.href = '{% url "admin:shop_manager_sale_changelist" %}';
+          } else {
+            const error = await response.json();
+            alert('Error: ' + JSON.stringify(error));
+          }
+        } catch (err) {
+          alert('Network error: ' + err.message);
+        }
+      });
+    </script>
+  </body>
+</html>
