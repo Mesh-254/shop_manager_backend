@@ -26,11 +26,11 @@ load_dotenv()  # take environment variables from .env file
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = os.getenv('SECRET_KEY')
+SECRET_KEY = os.getenv("SECRET_KEY")
 
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = os.getenv('DEBUG')
+DEBUG = os.getenv("DEBUG")
 
 ALLOWED_HOSTS = []
 
@@ -38,57 +38,50 @@ ALLOWED_HOSTS = []
 # Application definition
 
 INSTALLED_APPS = [
-    'unfold',
-    "unfold.contrib.filters",       # Optional but recommended
-    "unfold.contrib.forms",         # Optional
+    "unfold",
+    "unfold.contrib.filters",  # Optional but recommended
+    "unfold.contrib.forms",  # Optional
     "unfold.contrib.inlines",
-    'django_filters',             # For advanced filtering in admin and API
-    'django.contrib.admin',
-    'django.contrib.auth',
-    'django.contrib.contenttypes',
-    'django.contrib.sessions',
-    'django.contrib.messages',
-    'django.contrib.staticfiles',
-
+    "django_filters",  # For advanced filtering in admin and API
+    "django_htmx",  # For HTMX support in Django
+    "django.contrib.admin",
+    "django.contrib.auth",
+    "django.contrib.contenttypes",
+    "django.contrib.sessions",
+    "django.contrib.messages",
+    "django.contrib.staticfiles",
+    "django.contrib.humanize",  # ← Enables |naturalday, |intcomma, etc
     # rest framework and JWT
-    'rest_framework',
-    'rest_framework_simplejwt',
-
+    "rest_framework",
+    "rest_framework_simplejwt",
     # cors headers
-    'corsheaders',
-
+    "corsheaders",
     # Local apps
-    'accounts',
-    'shop_manager',
-
-    # Allauth for email verification and password reset
-    # 'allauth',
-    # 'allauth.account',
-    # 'allauth.socialaccount',
-    # 'allauth.socialaccount.providers.google',
+    "accounts",
+    "shop_manager",
+    "widget_tweaks",
 ]
 
 INSTALLED_APPS += [
-    'allauth',
-    'allauth.account',
-    'allauth.socialaccount',
-    'allauth.socialaccount.providers.google',
+    "allauth",
+    "allauth.account",
+    "allauth.socialaccount",
+    "allauth.socialaccount.providers.google",
 ]
 
 MIDDLEWARE = [
-    'django.middleware.security.SecurityMiddleware',
-    'django.contrib.sessions.middleware.SessionMiddleware',
-    'corsheaders.middleware.CorsMiddleware',
-    'django.middleware.common.CommonMiddleware',
-    'django.middleware.csrf.CsrfViewMiddleware',
-    'django.contrib.auth.middleware.AuthenticationMiddleware',
-    'allauth.account.middleware.AccountMiddleware',
-    'django.contrib.messages.middleware.MessageMiddleware',
-    'django.middleware.clickjacking.XFrameOptionsMiddleware',
-    
+    "django.middleware.security.SecurityMiddleware",
+    "django.contrib.sessions.middleware.SessionMiddleware",
+    "corsheaders.middleware.CorsMiddleware",
+    "django.middleware.common.CommonMiddleware",
+    "django.middleware.csrf.CsrfViewMiddleware",
+    "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "allauth.account.middleware.AccountMiddleware",
+    "django.contrib.messages.middleware.MessageMiddleware",
+    "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
 
-ROOT_URLCONF = 'backend.urls'
+ROOT_URLCONF = "backend.urls"
 
 # CORS_ALLOWED_ORIGINS
 CORS_ALLOWED_ORIGINS = [
@@ -100,34 +93,35 @@ CORS_ALLOW_ALL_ORIGINS = True
 
 TEMPLATES = [
     {
-        'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [],
-        'APP_DIRS': True,
-        'OPTIONS': {
-            'context_processors': [
-                'django.template.context_processors.request',
-                'django.contrib.auth.context_processors.auth',
-                'django.contrib.messages.context_processors.messages',
+        "BACKEND": "django.template.backends.django.DjangoTemplates",
+        "DIRS": [
+            BASE_DIR / "templates",  # ← must include this
+        ],
+        "APP_DIRS": True,
+        "OPTIONS": {
+            "context_processors": [
+                "django.template.context_processors.request",
+                "django.contrib.auth.context_processors.auth",
+                "django.contrib.messages.context_processors.messages",
             ],
         },
     },
 ]
 
-WSGI_APPLICATION = 'backend.wsgi.application'
+WSGI_APPLICATION = "backend.wsgi.application"
 
 
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
 DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.postgresql',
-        'NAME': os.getenv('DB_NAME'),
-        'USER': os.getenv('DB_USER'),
-        'PASSWORD': os.getenv('DB_PASSWORD'),
-        'HOST': os.getenv('DB_HOST', 'localhost'),
-        'PORT': os.getenv('DB_PORT', '5432'),
-        
+    "default": {
+        "ENGINE": "django.db.backends.postgresql",
+        "NAME": os.getenv("DB_NAME"),
+        "USER": os.getenv("DB_USER"),
+        "PASSWORD": os.getenv("DB_PASSWORD"),
+        "HOST": os.getenv("DB_HOST", "localhost"),
+        "PORT": os.getenv("DB_PORT", "5432"),
     }
 }
 
@@ -137,16 +131,16 @@ DATABASES = {
 
 AUTH_PASSWORD_VALIDATORS = [
     {
-        'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator',
+        "NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator",
     },
     {
-        'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',
+        "NAME": "django.contrib.auth.password_validation.MinimumLengthValidator",
     },
     {
-        'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator',
+        "NAME": "django.contrib.auth.password_validation.CommonPasswordValidator",
     },
     {
-        'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator',
+        "NAME": "django.contrib.auth.password_validation.NumericPasswordValidator",
     },
 ]
 
@@ -154,32 +148,32 @@ AUTH_PASSWORD_VALIDATORS = [
 # Internationalization
 # https://docs.djangoproject.com/en/5.2/topics/i18n/
 
-LANGUAGE_CODE = 'en-us'
+LANGUAGE_CODE = "en-us"
 
-TIME_ZONE = 'UTC'
+TIME_ZONE = "Africa/Nairobi"
 
 USE_I18N = True
 
 USE_TZ = True
 
 # email settings for sending verification and password reset emails
-EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
-EMAIL_HOST = os.getenv('EMAIL_HOST')
-EMAIL_PORT = os.getenv('EMAIL_PORT', 587)
+EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
+EMAIL_HOST = os.getenv("EMAIL_HOST")
+EMAIL_PORT = os.getenv("EMAIL_PORT", 587)
 EMAIL_USE_TLS = True
-EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER')
-EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD')
-DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL')
+EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER")
+EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD")
+DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL")
 
 
 # Celery Configuration
-CELERY_BROKER_URL = os.getenv('CELERY_BROKER_URL', 'redis://localhost:6379/0')
-CELERY_RESULT_BACKEND = os.getenv('CELERY_RESULT_BACKEND', 'redis://localhost:6379/0')
-CELERY_ACCEPT_CONTENT = ['application/json']
-CELERY_TASK_SERIALIZER = 'json'
-CELERY_RESULT_SERIALIZER = 'json'
-CELERY_TIMEZONE = 'UTC'
-CELERY_ENABLE_UTC = True
+CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
+CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", "redis://localhost:6379/0")
+CELERY_ACCEPT_CONTENT = ["application/json"]
+CELERY_TASK_SERIALIZER = "json"
+CELERY_RESULT_SERIALIZER = "json"
+CELERY_TIMEZONE = "Africa/Nairobi"
+CELERY_ENABLE_UTC = False
 
 # Optional: task retry settings for email (in case SMTP temporarily fails)
 CELERY_TASK_DEFAULT_RETRY_DELAY = 60  # seconds
@@ -189,17 +183,26 @@ CELERY_TASK_MAX_RETRIES = 5
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
-STATIC_URL = 'static/'
+STATIC_URL = "static/"
 
-FRONTEND_URL = os.getenv('FRONTEND_URL', 'http://localhost:5173')
+# Where Django looks for static files during collectstatic
+STATICFILES_DIRS = [
+    BASE_DIR / "static",  # your custom static files
+]
+
+# Where collectstatic puts files in production
+STATIC_ROOT = BASE_DIR / "staticfiles"
+
+
+FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
-DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 
-AUTH_USER_MODEL = 'accounts.User'
+AUTH_USER_MODEL = "accounts.User"
 
 # Allauth adapter override
 ACCOUNT_USER_MODEL_USERNAME_FIELD = None
@@ -207,67 +210,65 @@ ACCOUNT_USERNAME_REQUIRED = False
 ACCOUNT_EMAIL_REQUIRED = True
 
 REST_FRAMEWORK = {
-    'DEFAULT_AUTHENTICATION_CLASSES': (
-        'rest_framework_simplejwt.authentication.JWTAuthentication',
+    "DEFAULT_AUTHENTICATION_CLASSES": (
+        "rest_framework_simplejwt.authentication.JWTAuthentication",
     ),
-    'DEFAULT_PERMISSION_CLASSES': (
-        'rest_framework.permissions.IsAuthenticated',
-    ),
+    "DEFAULT_PERMISSION_CLASSES": ("rest_framework.permissions.IsAuthenticated",),
 }
 
 
 AUTHENTICATION_BACKENDS = [
-    'accounts.backends.CaseInsensitiveEmailBackend', # custom backend for case-insensitive email login
-    'allauth.account.auth_backends.AuthenticationBackend',
-    'django.contrib.auth.backends.ModelBackend',
+    "accounts.backends.CaseInsensitiveEmailBackend",  # custom backend for case-insensitive email login
+    "allauth.account.auth_backends.AuthenticationBackend",
+    "django.contrib.auth.backends.ModelBackend",
 ]
 
 # Allauth settings
 SITE_ID = 1
 
 # Modern allauth settings (no deprecations)
-ACCOUNT_LOGIN_METHODS = {'email': True}  # Login with email only
-ACCOUNT_SIGNUP_FIELDS = ['email*', 'password1*', 'password2*']  # Email required, no username
-ACCOUNT_EMAIL_VERIFICATION = 'mandatory'  # Password users must verify
-SOCIALACCOUNT_EMAIL_VERIFICATION = 'none'  # Google verifies email
+ACCOUNT_LOGIN_METHODS = {"email": True}  # Login with email only
+ACCOUNT_SIGNUP_FIELDS = [
+    "email*",
+    "password1*",
+    "password2*",
+]  # Email required, no username
+ACCOUNT_EMAIL_VERIFICATION = "mandatory"  # Password users must verify
+SOCIALACCOUNT_EMAIL_VERIFICATION = "none"  # Google verifies email
 SOCIALACCOUNT_AUTO_SIGNUP = True
 SOCIALACCOUNT_LOGIN_ON_GET = True
 
 # Google provider – secure env config (no DB SocialApp needed)
 SOCIALACCOUNT_PROVIDERS = {
-    'google': {
-        'SCOPE': ['profile', 'email'],
-        'AUTH_PARAMS': {'access_type': 'online'},
-        'APP': {
-            'client_id': os.getenv('GOOGLE_CLIENT_ID'),
-            'secret': os.getenv('GOOGLE_CLIENT_SECRET'),
-            'key': '',
-        }
+    "google": {
+        "SCOPE": ["profile", "email"],
+        "AUTH_PARAMS": {"access_type": "online"},
+        "APP": {
+            "client_id": os.getenv("GOOGLE_CLIENT_ID"),
+            "secret": os.getenv("GOOGLE_CLIENT_SECRET"),
+            "key": "",
+        },
     }
 }
 
 # Redirect after social login
-LOGIN_REDIRECT_URL = '/'  # Frontend will handle role redirect
-ACCOUNT_LOGOUT_REDIRECT_URL = 'http://localhost:5173/'
-
+LOGIN_REDIRECT_URL = "/"  # Frontend will handle role redirect
+ACCOUNT_LOGOUT_REDIRECT_URL = "http://localhost:5173/"
 
 
 # JWT Configuration
 from datetime import timedelta
 
 SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=60),          # short lived access token
-    'REFRESH_TOKEN_LIFETIME': timedelta(days=7),             # longer refresh token
-    'ROTATE_REFRESH_TOKENS': True,                           # issue new refresh on refresh
-    'BLACKLIST_AFTER_ROTATION': True,                        # blacklist old refresh token
-
-    'AUTH_HEADER_TYPES': ('Bearer',),
-    'AUTH_HEADER_NAME': 'HTTP_AUTHORIZATION',
-
-    'USER_ID_FIELD': 'id',
-    'USER_ID_CLAIM': 'user_id',
+    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=60),  # short lived access token
+    "REFRESH_TOKEN_LIFETIME": timedelta(days=7),  # longer refresh token
+    "ROTATE_REFRESH_TOKENS": True,  # issue new refresh on refresh
+    "BLACKLIST_AFTER_ROTATION": True,  # blacklist old refresh token
+    "AUTH_HEADER_TYPES": ("Bearer",),
+    "AUTH_HEADER_NAME": "HTTP_AUTHORIZATION",
+    "USER_ID_FIELD": "id",
+    "USER_ID_CLAIM": "user_id",
 }
-
 
 
 UNFOLD = {
@@ -304,13 +305,41 @@ UNFOLD = {
                         "title": _("Users & Cashiers"),
                         "icon": "people",
                         "link": reverse_lazy("admin:accounts_user_changelist"),
-                        "permission": lambda r: r.user.role in ['SuperAdmin', 'ShopAdmin'],
+                        "permission": lambda r: r.user.role
+                        in ["SuperAdmin", "ShopAdmin"],
                     },
                     {
                         "title": _("Subscription Plans"),
                         "icon": "subscriptions",
-                        "link": reverse_lazy("admin:shop_manager_subscriptionplan_changelist"),
-                        "permission": lambda r: r.user.role == 'SuperAdmin',
+                        "link": reverse_lazy(
+                            "admin:shop_manager_subscriptionplan_changelist"
+                        ),
+                        "permission": lambda r: r.user.role == "SuperAdmin",
+                    },
+                ],
+            },
+            {
+                "title": _("Product Catalog"),
+                "icon": "category",
+                "items": [
+                    {
+                        "title": _("Brands"),
+                        "icon": "branding_watermark",
+                        "link": reverse_lazy("admin:shop_manager_brand_changelist"),
+                    },
+                    {
+                        "title": _("Vehicle Makes"),
+                        "icon": "directions_car",
+                        "link": reverse_lazy(
+                            "admin:shop_manager_vehiclemake_changelist"
+                        ),
+                    },
+                    {
+                        "title": _("Vehicle Models"),
+                        "icon": "car_repair",
+                        "link": reverse_lazy(
+                            "admin:shop_manager_vehiclemodel_changelist"
+                        ),
                     },
                 ],
             },
@@ -345,14 +374,24 @@ UNFOLD = {
                 "icon": "swap_horiz",
                 "items": [
                     {
-                        "title": _("Purchases"),
-                        "icon": "shopping_cart",
+                        "title": _("Purchase List"),
+                        "icon": "list",
                         "link": reverse_lazy("admin:shop_manager_purchase_changelist"),
+                    },
+                    {
+                        "title": _("New Purchase"),
+                        "icon": "add_shopping_cart",
+                        "link": "/api/shopmanager/add-purchase/",
                     },
                     {
                         "title": _("Sales"),
                         "icon": "point_of_sale",
                         "link": reverse_lazy("admin:shop_manager_sale_changelist"),
+                    },
+                    {
+                        "title": _("New Sale"),
+                        "icon": "point_of_sale",
+                        "link": "/api/shopmanager/add-sale/",
                     },
                     {
                         "title": _("Expenses"),
@@ -362,13 +401,33 @@ UNFOLD = {
                 ],
             },
             {
-                "title": _("Reports & Logs"),
+                "title": _("Reports & Analytics"),
                 "icon": "analytics",
                 "items": [
                     {
-                        "title": _("Offline Sync Logs"),
-                        "icon": "sync",
-                        "link": reverse_lazy("admin:shop_manager_offlinesynclog_changelist"),
+                        "title": _("Sales Report"),
+                        "icon": "trending_up",
+                        "link": "/api/shopmanager/reports/sales/",
+                    },
+                    {
+                        "title": _("Purchase Report"),
+                        "icon": "shopping_cart",
+                        "link": "/api/shopmanager/reports/purchases/",
+                    },
+                    {
+                        "title": _("Expense Report"),
+                        "icon": "receipt_long",
+                        "link": "/api/shopmanager/reports/expenses/",
+                    },
+                    {
+                        "title": _("Stock Report"),
+                        "icon": "inventory_2",
+                        "link": "/api/shopmanager/reports/stock/",
+                    },
+                    {
+                        "title": _("Returns Report"),
+                        "icon": "assignment_return",
+                        "link": "/api/shopmanager/reports/returns/",
                     },
                 ],
             },
