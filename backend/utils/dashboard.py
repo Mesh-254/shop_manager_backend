@@ -1,302 +1,229 @@
+# shop_manager/dashboard.py
 import json
-from datetime import datetime
+from datetime import timedelta
 from decimal import Decimal
-from django.db.models import Sum, Q, F, FloatField, ExpressionWrapper, DecimalField
-from django.utils import timezone
-from django.contrib.auth import get_user_model
-from django.core.serializers.json import DjangoJSONEncoder
-from django.urls import reverse_lazy
 
+from django.db.models import Sum, Count, F, ExpressionWrapper, DecimalField
+from django.utils import timezone
+from django.urls import reverse
+from django.contrib import messages
+
+from accounts.models import User, UserRole
 from shop_manager.models import (
     Shop,
     Product,
-    Category,
-    Supplier,
     Stock,
-    Purchase,
-    PurchaseItem,
     Sale,
     SaleItem,
+    Purchase,
+    PurchaseItem,
     Expense,
+    Category,
+    Supplier,
+    OfflineSyncLog,
+    Returns,  # if you want to include returns metrics later
 )
 
-User = get_user_model()
+
+def get_filtered_qs(request, queryset):
+    """
+    Apply role-based scoping to any queryset.
+    - SuperAdmin: full access
+    - ShopAdmin: only their shop (handles direct & nested relationships)
+    - Others: empty
+    """
+    user = request.user
+
+    if user.role == UserRole.SUPER_ADMIN:
+        return queryset
+
+    if user.role != UserRole.SHOP_ADMIN or not user.shop:
+        return queryset.none()
+
+    model = queryset.model
+
+    # Models with direct 'shop' field
+    if hasattr(model, 'shop') and hasattr(model._meta.get_field('shop'), 'remote_field'):
+        return queryset.filter(shop=user.shop)
+
+    # Special cases: nested shop relationships
+    if model == Stock:
+        return queryset.filter(product__shop=user.shop)
+
+    if model == SaleItem:
+        return queryset.filter(sale__shop=user.shop)
+
+    if model == PurchaseItem:
+        return queryset.filter(purchase__shop=user.shop)
+
+    if model == Returns:
+        return queryset.filter(sale_item__sale__shop=user.shop)
+
+    # Default: no access
+    return queryset.none()
 
 
 def dashboard_callback(request, context=None):
     """
-    Advanced Unfold dashboard callback for the Car Parts Stock Management System.
-
-    Features:
-    - Role-based scoping (SuperAdmin sees global, ShopAdmin sees only their shop).
-    - Date range filtering via GET params (?from_date=YYYY-MM-DD&to_date=YYYY-MM-DD).
-    - Rich, color-themed KPI cards (success, warning, danger, info, primary).
-    - Chart data (JSON) for sales/revenue trends, top products, expense breakdown.
-    - Recent transactions tables (sales, purchases, low-stock items).
-    - Low-stock alerts with clickable links.
-
-    Returns a list of card dictionaries compatible with Unfold's dashboard rendering.
+    Modern, professional dashboard callback for Unfold admin.
+    Displays key metrics, recent activity, and low stock alerts.
+    Fully scoped by user role.
     """
+    now = timezone.now()
+    this_month_start = now.replace(day=1)
+    thirty_days_ago = now - timedelta(days=30)
+
     user = request.user
 
-    # ==================== Access Control ====================
-    if not user.is_staff:  # Only admins (SuperAdmin/ShopAdmin)
-        return []
+    # Early exit for users without a shop
+    if user.role == UserRole.SHOP_ADMIN and not user.shop:
+        messages.warning(request, "Your account is not assigned to any shop. Contact support.")
+        return {
+            "cards": [],
+            "recent_sales": [],
+            "low_stock_alerts": [],
+            "show_date_filter": False,
+            "error": "No shop assigned",
+        }
 
-    is_superadmin = user.role == "SuperAdmin"
+    # Scoped querysets helper
+    def filtered(qs):
+        return get_filtered_qs(request, qs)
 
-    # ==================== Shop Scoping ====================
-    shop_filter = Q()
-    if not is_superadmin:
-        # ShopAdmin sees only their shop (adjust if multi-shop ownership)
-        if hasattr(user, "shop"):
-            shop_filter = Q(shop=user.shop)
-        else:
-            return []  # No shop assigned
+    # ─── Core Querysets ────────────────────────────────────────────────
+    sales_qs = filtered(Sale.objects.all())
+    purchases_qs = filtered(Purchase.objects.all())
+    expenses_qs = filtered(Expense.objects.all())
+    stock_qs = filtered(Stock.objects.all())
+    # returns_qs = filtered(Returns.objects.all())  # optional
 
-    # ==================== Date Range Filtering ====================
-    today = timezone.now().date()
-    from_date_str = request.GET.get("from_date")
-    to_date_str = request.GET.get("to_date")
+    # ─── This Month Metrics ────────────────────────────────────────────
+    sales_this_month = sales_qs.filter(sale_date__gte=this_month_start)
+    revenue_this_month = sales_this_month.aggregate(
+        total=Sum("total_amount", default=Decimal("0.00"))
+    )["total"]
 
-    from_date = None
-    to_date = None
-    date_error = None
+    expenses_this_month = expenses_qs.filter(date__gte=this_month_start).aggregate(
+        total=Sum("amount", default=Decimal("0.00"))
+    )["total"]
 
-    if from_date_str:
-        try:
-            from_date = datetime.strptime(from_date_str, "%Y-%m-%d").date()
-        except ValueError:
-            date_error = "Invalid 'from_date' format. Use YYYY-MM-DD."
+    # ─── All-Time Metrics ──────────────────────────────────────────────
+    total_revenue = sales_qs.aggregate(
+        total=Sum("total_amount", default=Decimal("0.00"))
+    )["total"]
 
-    if to_date_str:
-        try:
-            to_date = datetime.strptime(to_date_str, "%Y-%m-%d").date()
-        except ValueError:
-            date_error = "Invalid 'to_date' format. Use YYYY-MM-DD."
+    total_sales_count = sales_qs.count()
+    total_orders_count = total_sales_count  # assuming 1 sale = 1 order
 
-    if from_date and to_date and from_date > to_date:
-        date_error = "'from_date' cannot be after 'to_date'."
+    avg_order_value = (
+        revenue_this_month / sales_this_month.count()
+        if sales_this_month.exists()
+        else Decimal("0.00")
+    )
 
-    date_filter = Q()
-    if from_date:
-        date_filter &= (
-            Q(created_at__date__gte=from_date)
-            | Q(purchase_date__date__gte=from_date)
-            | Q(sale_date__date__gte=from_date)
+    # ─── Stock Health ──────────────────────────────────────────────────
+    low_stock_threshold = 10  # can be made configurable per shop later
+    low_stock_count = stock_qs.filter(
+        quantity__lte=F("product__reorder_level"),
+        quantity__gt=0
+    ).count()
+
+    out_of_stock_count = stock_qs.filter(quantity=0).count()
+
+    total_stock_value = stock_qs.aggregate(
+        value=Sum(
+            ExpressionWrapper(
+                F("quantity") * F("product__selling_price"),
+                output_field=DecimalField(max_digits=15, decimal_places=2)
+            ),
+            default=Decimal("0.00")
         )
-    if to_date:
-        date_filter &= (
-            Q(created_at__date__lte=to_date)
-            | Q(purchase_date__date__lte=to_date)
-            | Q(sale_date__date__lte=to_date)
-        )
+    )["value"]
 
-    has_date_range = bool(from_date or to_date)
-
-    # ==================== Core Querysets (Scoped + Filtered) ====================
-    products_qs = (
-        Product.objects.filter(shop_filter)
-        if not has_date_range
-        else Product.objects.filter(shop_filter)
-    )
-    stocks_qs = Stock.objects.all()
-
-    sales_qs = (
-        Sale.objects.filter(shop_filter & date_filter)
-        if has_date_range
-        else Sale.objects.filter(shop_filter)
-    )
-    purchases_qs = (
-        Purchase.objects.filter(shop_filter & date_filter)
-        if has_date_range
-        else Purchase.objects.filter(shop_filter)
-    )
-    expenses_qs = (
-        Expense.objects.filter(shop_filter & date_filter)
-        if has_date_range
-        else Expense.objects.filter(shop_filter)
-    )
-
-    # ==================== KPI Calculations ====================
-    # Stock
-    low_stock_count = stocks_qs.filter(
-        quantity__lt=10
-    ).count()  # Configurable threshold
-    total_stock_value = stocks_qs.annotate(
-        value=F("quantity") * F("product__cost_price")
-    ).aggregate(total=Sum("value", output_field=FloatField()))["total"] or Decimal(
-        "0.00"
-    )
-
-    # Sales
-    total_sales = sales_qs.count()
-    total_revenue = sales_qs.aggregate(total=Sum("total_amount"))["total"] or Decimal(
-        "0.00"
-    )
-    today_sales = sales_qs.filter(sale_date__date=today).aggregate(
-        total=Sum("total_amount")
-    )["total"] or Decimal("0.00")
-
-    # Purchases
-    total_purchases = purchases_qs.count()
-    pending_purchases = purchases_qs.filter(
-        payment_status__in=["Pending", "Overdue"]
-    ).aggregate(total=Sum("total_amount"))["total"] or Decimal("0.00")
-
-    # Profit (Revenue - Cost of Goods Sold)
-    profit_qs = sales_qs.annotate(
-        item_profit=ExpressionWrapper(
-            F("items__quantity")
-            * (F("items__unit_selling_price") - F("items__unit_cost_price")),
-            output_field=DecimalField(
-                max_digits=12, decimal_places=2
-            ),  # adjust precision to match your models
-        )
-    )
-
-    profit = profit_qs.aggregate(total_profit=Sum("item_profit"))[
-        "total_profit"
-    ] or Decimal("0.00")
-
-    # Expenses
-    total_expenses = expenses_qs.aggregate(total=Sum("amount"))["total"] or Decimal(
-        "0.00"
-    )
-
-    # Net Profit
-    net_profit = profit - total_expenses
-
-    # ==================== Chart Data ====================
-    # Sales trend (last 30 days or date range)
-    sales_trend = list(
-        sales_qs.extra(select={"date": "DATE(sale_date)"})
-        .values("date")
-        .annotate(total=Sum("total_amount"))
-        .order_by("date")
-    )
-
-    # Top 5 selling products
-    top_products = list(
-        SaleItem.objects.filter(sale__in=sales_qs)
-        .annotate(
-            item_revenue=ExpressionWrapper(
-                F("quantity") * F("unit_selling_price"),
-                output_field=DecimalField(
-                    max_digits=12, decimal_places=2
-                ),  # ← match your price fields
-            )
-        )
-        .values("product__name")
-        .annotate(
-            quantity=Sum("quantity"),
-            revenue=Sum("item_revenue"),
-        )
-        .order_by("-revenue")[:5]
-    )
-
-    # Expense breakdown by type
-    expense_breakdown = list(
-        expenses_qs.values("expense_type")
-        .annotate(total=Sum("amount"))
-        .order_by("-total")
-    )
-
-    # ==================== Recent Tables ====================
-    recent_sales = list(
-        sales_qs.order_by("-sale_date")[:10].values(
-            "id", "total_amount", "payment_status", "sale_date", "sold_by__full_name"
-        )
-    )
-
-    recent_purchases = list(
-        purchases_qs.order_by("-purchase_date")[:10].values(
-            "id", "total_amount", "payment_status", "purchase_date", "supplier__name"
-        )
-    )
-
-    low_stock_items = list(
-        stocks_qs.filter(quantity__lt=10)
-        .order_by("quantity")
-        .values(
-            "product__name", "product__id", "quantity"  # UUID – shows something unique
-        )[:10]
-    )
-    # ==================== Dashboard Cards (Color-Themed) ====================
+    # ─── Cards (KPIs) ──────────────────────────────────────────────────
     cards = [
         {
             "title": "Total Revenue",
-            "value": f"{total_revenue:,.2f}",
-            "type": "success",
-            "icon": "attach_money",
-            "url": reverse_lazy("admin:shop_manager_sale_changelist"),
+            "value": f"KES {total_revenue:,.2f}",
+            "subtitle": f"This month: KES {revenue_this_month:,.2f}",
+            "color": "success",
+            "icon": "payments",
+            "url": "/admin/reports/sales/",
+            "help_text": "Total income from all sales",
         },
         {
-            "title": "Today's Sales",
-            "value": f"{today_sales:,.2f}",
-            "type": "primary",
-            "icon": "today",
+            "title": "Net Profit (30d)",
+            "value": f"KES {(revenue_this_month - expenses_this_month):,.2f}",
+            "subtitle": f"Revenue - Expenses",
+            "color": "primary" if revenue_this_month > expenses_this_month else "danger",
+            "icon": "trending_up" if revenue_this_month > expenses_this_month else "trending_down",
+            "url": "/admin/reports/expenses/",
         },
         {
-            "title": "Net Profit",
-            "value": f"{net_profit:,.2f}",
-            "type": "success" if net_profit >= 0 else "danger",
-            "icon": "trending_up",
+            "title": "Average Order Value",
+            "value": f"KES {avg_order_value:,.2f}",
+            "subtitle": "This month",
+            "color": "info",
+            "icon": "calculate",
+            "url": "/admin/reports/sales/",
         },
         {
-            "title": "Low Stock Alerts",
-            "value": low_stock_count,
-            "type": "danger" if low_stock_count > 0 else "success",
-            "icon": "warning",
-            "url": reverse_lazy("admin:shop_manager_stock_changelist")
-            + "?quantity__lt=10",
+            "title": "Low Stock Items",
+            "value": str(low_stock_count),
+            "subtitle": f"Out of stock: {out_of_stock_count}",
+            "color": "warning" if low_stock_count > 0 else "success",
+            "icon": "warning_amber",
+            "url": "/admin/shop_manager/stock/?quantity__lte=10",
+            "help_text": "Items below reorder level",
         },
         {
-            "title": "Total Stock Value",
-            "value": f"{total_stock_value:,.2f}",
-            "type": "info",
-            "icon": "inventory",
+            "title": "Inventory Value",
+            "value": f"KES {total_stock_value:,.2f}",
+            "subtitle": "Current stock value at selling price",
+            "color": "secondary",
+            "icon": "inventory_2",
+            "url": "/admin/shop_manager/stock/",
         },
         {
-            "title": "Pending Purchases",
-            "value": f"{pending_purchases:,.2f}",
-            "type": "warning",
+            "title": "Total Sales",
+            "value": str(total_sales_count),
+            "subtitle": f"This month: {sales_this_month.count()}",
+            "color": "primary",
             "icon": "shopping_cart",
-            "url": reverse_lazy("admin:shop_manager_purchase_changelist")
-            + "?payment_status__exact=Pending",
-        },
-        {
-            "title": "Total Expenses",
-            "value": f"{total_expenses:,.2f}",
-            "type": "secondary",
-            "icon": "receipt_long",
-        },
-        {
-            "title": "Active Products",
-            "value": products_qs.count(),
-            "type": "primary",
-            "icon": "category",
-            "url": reverse_lazy("admin:shop_manager_product_changelist"),
+            "url": "/admin/shop_manager/sale/",
         },
     ]
 
-    # Add chart/table cards if Unfold supports custom sections (or use in custom template)
+    # ─── Recent Activity ───────────────────────────────────────────────
+    recent_sales = sales_qs.order_by("-sale_date")[:8].values(
+        "id",
+        "sale_date",
+        "total_amount",
+        "payment_status",
+        "sold_by__full_name",
+    )
+
+    recent_low_stock = stock_qs.filter(
+        quantity__lte=F("product__reorder_level")
+    ).order_by("quantity")[:8].values(
+        "product__name",
+        "quantity",
+        "product__category__name",
+        "product__shop__name",
+    )
+
+    # ─── Final Context ─────────────────────────────────────────────────
     extra_context = {
         "cards": cards,
-        "sales_trend_chart": json.dumps(sales_trend, cls=DjangoJSONEncoder),
-        "top_products_data": json.dumps(top_products, cls=DjangoJSONEncoder),
-        "expense_breakdown_data": json.dumps(expense_breakdown, cls=DjangoJSONEncoder),
-        "recent_sales_table": recent_sales,
-        "recent_purchases_table": recent_purchases,
-        "low_stock_table": low_stock_items,
-        "date_error": date_error,
-        "from_date": from_date_str or "",
-        "to_date": to_date_str or "",
+        "recent_sales": recent_sales,
+        "low_stock_alerts": recent_low_stock,
+        "show_date_filter": True,
+        "current_month": now.strftime("%B %Y"),
+        "user_role": user.role,
+        "is_superadmin": user.role == UserRole.SUPER_ADMIN,
     }
 
-    # Update the context dict that will be sent to the template
     if context is not None:
         context.update(extra_context)
 
-    # Unfold primarily uses cards list, but you can return extra context for custom template
     return context
