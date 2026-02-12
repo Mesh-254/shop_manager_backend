@@ -1,7 +1,10 @@
+from decimal import Decimal
 import uuid
 from django.db import models
 from django.utils import timezone
+from django.core.exceptions import ValidationError
 from phonenumber_field.modelfields import PhoneNumberField  # type: ignore
+from .utils import update_stock
 
 
 # =============================================================================
@@ -249,9 +252,14 @@ class Brand(models.Model):
 
     name = models.CharField(max_length=100, unique=True)
     country_of_origin = models.CharField(max_length=100, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True, null=True)
+    is_active = models.BooleanField(default=True)
 
     def __str__(self):
         return self.name
+
+    class Meta:
+        ordering = ["name"]
 
 
 class VehicleMake(models.Model):
@@ -281,8 +289,6 @@ class VehicleModel(models.Model):
 # =============================================================================
 # MODEL: Product
 # =============================================================================
-
-
 class Product(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
 
@@ -292,23 +298,6 @@ class Product(models.Model):
     category = models.ForeignKey(
         "Category", on_delete=models.PROTECT, related_name="products"
     )
-
-    brand = models.ForeignKey(
-        "Brand",
-        on_delete=models.PROTECT,
-        null=True,
-        blank=True,
-        related_name="products",
-    )
-
-    supplier = models.ForeignKey(
-        "Supplier",
-        on_delete=models.PROTECT,
-        null=True,
-        blank=True,
-        related_name="supplied_products",
-    )
-
     shop = models.ForeignKey("Shop", on_delete=models.CASCADE, related_name="products")
 
     # Compatibility – simple text field for MVP (can be normalized later)
@@ -318,6 +307,14 @@ class Product(models.Model):
 
     cost_price = models.DecimalField(max_digits=12, decimal_places=2)
     selling_price = models.DecimalField(max_digits=12, decimal_places=2)
+
+    # NEW: Weighted average cost
+    average_cost_price = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=Decimal('0.00'),
+        help_text="Weighted average cost price (auto-calculated from purchases)"
+    )
 
     reorder_level = models.PositiveIntegerField(
         default=5, help_text="Stock level below which reorder is recommended"
@@ -340,6 +337,13 @@ class Product(models.Model):
         null=True,
         related_name="products_created",
     )
+    updated_by = models.ForeignKey(
+        'accounts.User',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='updated_products'
+    )
 
     class Meta:
         indexes = [
@@ -352,7 +356,7 @@ class Product(models.Model):
         verbose_name_plural = "Parts"
 
     def __str__(self):
-        return f"{self.id or 'N/A'} – {self.name}"
+        return f"{self.name}"
 
     @property
     def current_stock(self):
@@ -405,10 +409,16 @@ class Stock(models.Model):
         auto_now=True, help_text="The date and time the stock was last updated."
     )
 
+    reorder_level = models.PositiveIntegerField(null=True, blank=True, help_text="Shop-specific override")
+
+    @property
+    def effective_reorder_level(self):
+        return self.reorder_level if self.reorder_level is not None else self.product.reorder_level
+    
+    
     @property
     def is_low_stock(self):
-        return self.quantity <= self.product.reorder_level
-        
+        return self.quantity <= self.effective_reorder_level
 
     def __str__(self):
         """
@@ -530,8 +540,8 @@ class Purchase(models.Model):
         help_text="The payment method used for the purchase.",
     )
 
-    purchase_date = models.DateTimeField(
-        db_index=True, help_text="The date and time when the purchase was made."
+    purchase_date = models.DateField(
+        db_index=True, null=True, help_text="The date and time when the purchase was made."
     )
 
     created_by = models.ForeignKey(
@@ -553,6 +563,36 @@ class Purchase(models.Model):
     def __str__(self):
         return f"Purchase from {self.supplier} on {self.purchase_date.strftime('%Y-%m-%d')}"
 
+    def update_stock(self, user=None):
+        """Apply stock increase for all items in this purchase"""
+        for item in self.items.select_related('product').all():
+            if item.quantity > 0:
+                update_stock(
+                    product=item.product,
+                    quantity_change=item.quantity,
+                    transaction_type="purchase",
+                    reason=f"Purchase created/updated",
+                    reference=str(self.id),
+                    user=user,
+                )
+
+    def save(self, *args, **kwargs):
+        is_new = self.pk is None
+        super().save(*args, **kwargs)
+        # Only update stock on creation or when items change significantly
+        # (for simplicity we do it every time – you can optimize later)
+        if is_new and self.items.exists():
+            self.update_stock(user=self.created_by)
+    
+    def clean(self):
+        if not self.items.exists() and self.pk:
+            raise ValidationError("A purchase must contain at least one item.")
+
+    def update_total(self):
+        """Call this after adding/removing items"""
+        self.total_amount = sum(item.total_cost for item in self.items.all())
+        self.save(update_fields=['total_amount'])
+
 
 class PurchaseItem(models.Model):
     """
@@ -566,6 +606,13 @@ class PurchaseItem(models.Model):
     )
 
     product = models.ForeignKey(Product, on_delete=models.CASCADE, db_index=True)
+    brand = models.ForeignKey(
+        Brand,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        help_text="The brand of the product in this specific purchase"
+    )
 
     quantity = models.PositiveIntegerField()
 
@@ -578,7 +625,7 @@ class PurchaseItem(models.Model):
 
     @property
     def total_cost(self):
-        return self.quantity * self.unit_cost_price
+        return self.quantity * self.unit_cost_price if self.unit_cost_price else Decimal('0.00')
 
     def __str__(self):
         return f"{self.quantity} x {self.product.name} @ {self.unit_cost_price}"
@@ -640,9 +687,18 @@ class Sale(models.Model):
         help_text="The user who made the sale.",
     )
     sale_date = models.DateTimeField(
-        auto_now_add=True,
+        default=timezone.now,
         db_index=True,
-        help_text="The date and time when the sale was made.",
+        help_text="The date and time when the sale was made.", 
+    )
+
+    vehicle_make = models.ForeignKey(
+        VehicleMake,
+        on_delete=models.SET_NULL,      # or PROTECT / CASCADE — depending on business rule
+        null=True,
+        blank=True,
+        related_name='sales',
+        help_text="The make of vehicle the parts were sold for"
     )
 
     class Meta:
@@ -668,21 +724,25 @@ class SaleItem(models.Model):
     )  # frozen at sale time
 
     def save(self, *args, **kwargs):
-        if not self.unit_cost_price:
-            self.unit_cost_price = self.product.cost_price  # auto-fill if not set
-        if not self.unit_selling_price:
-            self.unit_selling_price = self.product.selling_price  # auto-fill
+        # Freeze average cost and selling price at the moment of sale (only if not already set)
+        if not self.pk:  # on creation
+            if self.unit_cost_price is None:
+                self.unit_cost_price = getattr(self.product, 'average_cost_price', Decimal('0.00'))
+
+            if self.unit_selling_price is None:
+                self.unit_selling_price = self.product.selling_price or Decimal('0.00')
+
         super().save(*args, **kwargs)
 
     @property
-    def profit(self):
-        return (self.unit_selling_price - self.unit_cost_price) * self.quantity
+    def profit_amount(self):
+        cost = self.unit_cost_price or Decimal('0.00')
+        return (self.unit_selling_price - cost) * self.quantity
 
     class Meta:
         indexes = [
             models.Index(fields=["sale", "product"]),
         ]
-
 
 # =============================================================================
 # MODEL: Expense
@@ -724,6 +784,24 @@ class Expense(models.Model):
     date = models.DateField(
         db_index=True, help_text="The date when the expense occurred."
     )
+
+
+class Returns(models.Model):
+    """Warranty/returns tracking"""
+
+    sale_item = models.ForeignKey(
+        SaleItem, on_delete=models.CASCADE, related_name="returns"
+    )
+    return_date = models.DateTimeField(auto_now_add=True)
+    reason = models.CharField(
+        max_length=200,
+        choices=[("defect", "Defect"), ("wrong_fit", "Wrong Fit"), ("other", "Other")],
+    )
+    refund_amount = models.DecimalField(max_digits=10, decimal_places=2)
+    resolved = models.BooleanField(default=False)
+
+    def __str__(self):
+        return f"Return for {self.sale_item.product.name} - {self.reason}"
 
 
 # =============================================================================
