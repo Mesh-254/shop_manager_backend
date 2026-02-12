@@ -1,10 +1,13 @@
 from rest_framework import serializers
+from shop_manager.signals import recalculate_sale_total
 from .models import *
 from django.core.validators import FileExtensionValidator
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.db import transaction
 from rest_framework.exceptions import ValidationError
 from decimal import Decimal
 from django.contrib.auth import get_user_model
+
 
 
 User = get_user_model()
@@ -243,7 +246,6 @@ class SupplierSerializer(serializers.HyperlinkedModelSerializer):
 class ProductListSerializer(serializers.ModelSerializer):
     category = CategorySerializer(read_only=True)
     brand = BrandSerializer(read_only=True)
-    supplier = SupplierSerializer(read_only=True)
     current_stock = serializers.IntegerField(
         source="stock.quantity", read_only=True, default=0
     )
@@ -256,7 +258,6 @@ class ProductListSerializer(serializers.ModelSerializer):
             "name",
             "category",
             "brand",
-            "supplier",
             "cost_price",
             "selling_price",
             "reorder_level",
@@ -412,7 +413,9 @@ class StockSerializer(serializers.HyperlinkedModelSerializer):
         help_text="URL of the product associated with this stock.",
     )
 
-    low_stock = serializers.BooleanField(source='is_low_stock', read_only=True)  # Add property in Stock model
+    low_stock = serializers.BooleanField(
+        source="is_low_stock", read_only=True
+    )  # Add property in Stock model
 
     class Meta:
         model = Stock
@@ -479,9 +482,12 @@ class PurchaseItemSerializer(serializers.HyperlinkedModelSerializer):
         view_name="purchase-detail", read_only=True
     )
 
-    total_cost = serializers.DecimalField(
-        max_digits=12, decimal_places=2, read_only=True
+    brand = serializers.PrimaryKeyRelatedField(  # Explicitly add to use PK (accepts ID)
+        queryset=Brand.objects.all(),
+        allow_null=True
     )
+
+    total_cost = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = PurchaseItem
@@ -489,21 +495,41 @@ class PurchaseItemSerializer(serializers.HyperlinkedModelSerializer):
             "url",
             "product",
             "quantity",
+            "brand",
             "unit_cost_price",
             "purchase",
             "total_cost",
         ]
         extra_kwargs = {"url": {"view_name": "purchaseitem-detail"}}
 
+    def get_total_cost(self, obj):
+        return (
+            obj.quantity * obj.unit_cost_price
+            if obj.unit_cost_price
+            else Decimal("0.00")
+        )
+
+    def validate(self, data):
+        if data['quantity'] <= 0:
+            raise serializers.ValidationError("Quantity must be greater than 0")
+        if data.get('unit_cost_price', 0) < 0:
+            raise serializers.ValidationError("Unit cost cannot be negative")
+        return data
+
 
 class PurchaseSerializer(serializers.HyperlinkedModelSerializer):
 
-    shop = serializers.HyperlinkedRelatedField(
-        view_name="shop-detail", queryset=Shop.objects.all()
+    shop = serializers.PrimaryKeyRelatedField(  # Change to PK (accepts ID)
+        queryset=Shop.objects.all(),
+        required=False  # Make optional; view will auto-set for ShopAdmins
+    )
+    total_amount = serializers.DecimalField(
+        max_digits=14, decimal_places=2, read_only=True
     )
 
-    supplier = serializers.HyperlinkedRelatedField(
-        view_name="supplier-detail", queryset=Supplier.objects.all(), allow_null=True
+    supplier = serializers.PrimaryKeyRelatedField(  # Change to PK (accepts ID)
+        queryset=Supplier.objects.all(),
+        allow_null=True
     )
 
     created_by = serializers.HiddenField(default=serializers.CurrentUserDefault())
@@ -515,15 +541,14 @@ class PurchaseSerializer(serializers.HyperlinkedModelSerializer):
     class Meta:
         model = Purchase
         fields = [
-            "url",
             "id",
             "shop",
             "supplier",
-            "total_amount",
+            "purchase_date",
             "payment_status",
             "payment_method",
-            "purchase_date",
-            "created_by",
+            "total_amount",
+            "created_by",  # optional: hide or set via user
             "items",
             "items_read",
         ]
@@ -531,6 +556,23 @@ class PurchaseSerializer(serializers.HyperlinkedModelSerializer):
         extra_kwargs = {
             "url": {"view_name": "purchase-detail"},
         }
+
+    @transaction.atomic
+    def create(self, validated_data):
+        items_data = validated_data.pop('items')
+        request = self.context['request']
+
+        # Auto-set created_by and shop
+        validated_data['created_by'] = request.user
+        if request.user.role == "ShopAdmin":
+            validated_data['shop'] = request.user.shop
+
+        purchase = Purchase.objects.create(**validated_data)
+
+        for item_data in items_data:
+            PurchaseItem.objects.create(purchase=purchase, **item_data)
+
+        return purchase
 
 
 # =============================================================================
@@ -582,18 +624,13 @@ class SaleSerializer(serializers.HyperlinkedModelSerializer):
             "items",
         ]
 
+    @transaction.atomic
     def create(self, validated_data):
         items_data = validated_data.pop("items")
-        sale = Sale.objects.create(**validated_data, total_amount=Decimal(0.00))
+        sale = Sale.objects.create(**validated_data, total_amount=Decimal('0.00'))
 
-        # Calculate total amount after saving SaleItems
-        total_amount = 0
         for item_data in items_data:
-            item = SaleItem.objects.create(sale=sale, **item_data)
-            total_amount += item.unit_selling_price * item.quantity
+            SaleItem.objects.create(sale=sale, **item_data)
 
-        # Update the total_amount after SaleItems are created
-        sale.total_amount = total_amount - sale.discount
-        sale.save()
-
+        recalculate_sale_total(sale)  # ensure correct total
         return sale
