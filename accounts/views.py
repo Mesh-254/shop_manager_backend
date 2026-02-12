@@ -60,6 +60,7 @@ class LoginView(APIView):
             if not password or not user.check_password(password):
                 return Response({"detail": "Invalid credentials."}, status=401)
 
+        # Generate JWT for SPA
         refresh = RefreshToken.for_user(user)
         return Response(
             {
