@@ -1,41 +1,134 @@
-{% extends "unfold/index.html" %}
+{% extends "admin/index.html" %}
+{% load humanize static %}
+
+{% block extrastyle %}
+  <link rel="stylesheet" href="{% static 'admin/css/dashboard.css' %}">
+{% endblock %}
+
+{% block extrahead %}
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+{% endblock %}
 
 {% block content %}
-  <!-- KPI Cards Grid -->
-  <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-    {% for card in cards %}
-      <div class="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700">
-        <div class="flex items-center justify-between">
-          <div>
-            <p class="text-sm font-medium text-gray-500 dark:text-gray-400">{{ card.title }}</p>
-            <p class="text-2xl font-bold text-gray-900 dark:text-white mt-1">{{ card.value }}</p>
-          </div>
-          <span class="material-icons text-4xl text-{{ card.type }}-600 dark:text-{{ card.type }}-400">{{ card.icon }}</span>
-        </div>
-        {% if card.url %}
-          <a href="{{ card.url }}" class="text-sm text-blue-600 hover:underline mt-2 inline-block">View details →</a>
+
+<div class="space-y-8 p-4 md:p-6">
+
+  <!-- Header -->
+  <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+    <div>
+      <h1 class="text-2xl md:text-3xl font-bold text-gray-900 dark:text-white">
+        {% if is_superadmin %}
+          Global Overview
+        {% else %}
+          {{ request.user.shop.name|default:"Your Shop" }} Dashboard
         {% endif %}
-      </div>
+      </h1>
+      <p class="text-gray-600 dark:text-gray-400 mt-1">
+        {% if from_date and to_date %}
+          {{ from_date|date:"d M Y" }} – {{ to_date|date:"d M Y" }}
+        {% else %}
+          All time • Charts show last 30 days
+        {% endif %}
+      </p>
+    </div>
+
+    <div class="flex flex-wrap items-end gap-3">
+      <form method="get" class="flex flex-wrap gap-3">
+        <div>
+          <label class="block text-sm text-gray-700 dark:text-gray-300 mb-1">From</label>
+          <input type="date" name="from_date" value="{{ from_date|default:'' }}" class="border rounded-lg px-3 py-2 bg-white dark:bg-gray-800">
+        </div>
+        <div>
+          <label class="block text-sm text-gray-700 dark:text-gray-300 mb-1">To</label>
+          <input type="date" name="to_date" value="{{ to_date|default:'' }}" class="border rounded-lg px-3 py-2 bg-white dark:bg-gray-800">
+        </div>
+        <button type="submit" class="bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2 rounded-lg font-medium">
+          Apply
+        </button>
+      </form>
+
+      <a href="#" class="bg-gray-600 hover:bg-gray-700 text-white px-5 py-2 rounded-lg font-medium">
+        Export PDF
+      </a>
+    </div>
+  </div>
+
+  <!-- KPI Cards -->
+  <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
+    {% for card in cards %}
+      <a href="{{ card.url|default:'#' }}" class="block bg-white dark:bg-gray-800 rounded-xl shadow hover:shadow-lg transition-all duration-200 overflow-hidden border border-gray-200 dark:border-gray-700 {% if card.alert %}border-l-4 border-l-amber-500{% endif %}">
+        <div class="p-6">
+          <div class="flex items-start justify-between">
+            <div>
+              <p class="text-sm font-medium text-gray-500 dark:text-gray-400">{{ card.title }}</p>
+              <p class="text-3xl font-bold mt-2 {% if card.color == 'emerald' %}text-emerald-600 dark:text-emerald-400{% elif card.color == 'blue' %}text-blue-600 dark:text-blue-400{% elif card.color == 'amber' %}text-amber-600 dark:text-amber-400{% else %}text-gray-900 dark:text-white{% endif %}">
+                {{ card.value }}
+              </p>
+              {% if card.change %}
+                <p class="text-sm mt-1 {% if card.change > 0 %}text-emerald-600{% else %}text-red-600{% endif %}">
+                  {{ card.change }}% {% if card.change > 0 %}▲{% else %}▼{% endif %} vs last period
+                </p>
+              {% endif %}
+            </div>
+            <span class="material-icons text-5xl opacity-30 {% if card.color == 'emerald' %}text-emerald-500{% elif card.color == 'blue' %}text-blue-500{% elif card.color == 'amber' %}text-amber-500{% else %}text-gray-500{% endif %}">
+              {{ card.icon }}
+            </span>
+          </div>
+        </div>
+      </a>
     {% endfor %}
   </div>
 
-  <!-- Example: Low Stock Table -->
-  {% if low_stock_table %}
-    <div class="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 mb-8">
-      <h2 class="text-xl font-semibold mb-4">Low Stock Items</h2>
+  <!-- Charts Row -->
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+    <!-- Revenue Trend -->
+    <div class="bg-white dark:bg-gray-800 rounded-xl shadow border border-gray-200 dark:border-gray-700 p-6">
+      <h3 class="text-lg font-semibold mb-4 text-gray-900 dark:text-white">Revenue Trend</h3>
+      <canvas id="revenueChart" height="280"></canvas>
+    </div>
+
+    <!-- Top Brands / Categories -->
+    <div class="bg-white dark:bg-gray-800 rounded-xl shadow border border-gray-200 dark:border-gray-700 p-6">
+      <h3 class="text-lg font-semibold mb-4 text-gray-900 dark:text-white">Top Selling Brands</h3>
+      <canvas id="brandsChart" height="280"></canvas>
+    </div>
+  </div>
+
+  <!-- Quick Actions -->
+  <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+    <a href="{% url 'admin:shop_manager_stock_changelist' %}" class="bg-white dark:bg-gray-800 rounded-xl shadow border border-gray-200 dark:border-gray-700 p-6 hover:shadow-lg transition-all">
+      <div class="flex items-center gap-4">
+        <span class="material-icons text-4xl text-amber-600">warning</span>
+        <div>
+          <h4 class="font-semibold">Low Stock</h4>
+          <p class="text-sm text-gray-600 dark:text-gray-400">View & reorder</p>
+        </div>
+      </div>
+    </a>
+    <!-- Add more quick actions: New Sale, Suppliers, Reports, etc. -->
+  </div>
+
+  <!-- Recent Sales / Low Stock Table -->
+  {% if recent_sales %}
+    <div class="bg-white dark:bg-gray-800 rounded-xl shadow border border-gray-200 dark:border-gray-700 overflow-hidden">
+      <div class="p-6 border-b border-gray-200 dark:border-gray-700">
+        <h2 class="text-xl font-semibold">Recent Sales</h2>
+      </div>
       <div class="overflow-x-auto">
         <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
           <thead class="bg-gray-50 dark:bg-gray-700">
             <tr>
-              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Product</th>
-              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Quantity</th>
+              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Date</th>
+              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Total</th>
+              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">Items</th>
             </tr>
           </thead>
-          <tbody class="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-            {% for item in low_stock_table %}
-              <tr>
-                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-200">{{ item.product__name }}</td>
-                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-200">{{ item.quantity }}</td>
+          <tbody class="divide-y divide-gray-200 dark:divide-gray-700">
+            {% for sale in recent_sales %}
+              <tr class="hover:bg-gray-50 dark:hover:bg-gray-700/50">
+                <td class="px-6 py-4 text-sm text-gray-900 dark:text-gray-200">{{ sale.sale_date|date:"d M Y H:i" }}</td>
+                <td class="px-6 py-4 text-sm font-medium text-emerald-600 dark:text-emerald-400">{{ sale.total_amount|floatformat:2 }}</td>
+                <td class="px-6 py-4 text-sm text-gray-500 dark:text-gray-400">{{ sale.items.count }}</td>
               </tr>
             {% endfor %}
           </tbody>
@@ -44,12 +137,7 @@
     </div>
   {% endif %}
 
-  <!-- Add similar blocks for charts (e.g. using ApexCharts) -->
-  <!-- Example placeholder for sales chart -->
-  <div class="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700">
-    <h2 class="text-xl font-semibold mb-4">Sales Trend</h2>
-    <div id="sales-chart" class="h-80"></div>
-    <!-- Add JS init here if using ApexCharts / Chart.js -->
-  </div>
+</div>
 
+<script src="{% static 'admin/js/dashboard.js' %}"></script>
 {% endblock %}
