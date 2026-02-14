@@ -42,14 +42,15 @@
           <label class="block text-sm text-gray-700 dark:text-gray-300 mb-1">To</label>
           <input type="date" name="to_date" value="{{ to_date|default:'' }}" class="border rounded-lg px-3 py-2 bg-white dark:bg-gray-800">
         </div>
-        <button type="submit" class="bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2 rounded-lg font-medium">
+        <button type="submit" class="bg-emerald-600 hover:bg-emerald-700 text-blue px-5 py-2 rounded-lg font-medium">
           Apply
         </button>
+        <a href="{% url 'admin:index' %}" class="px-5 py-2 bg-gray-600 text-blue rounded-lg hover:bg-gray-700">Clear</a>
       </form>
 
-      <a href="#" class="bg-gray-600 hover:bg-gray-700 text-white px-5 py-2 rounded-lg font-medium">
+      <!-- <a href="#" class="bg-gray-600 hover:bg-gray-700 text-white px-5 py-2 rounded-lg font-medium">
         Export PDF
-      </a>
+      </a> -->
     </div>
   </div>
 
@@ -80,19 +81,19 @@
   </div>
 
   <!-- Charts Row -->
-  <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+  <!-- <div class="grid grid-cols-1 lg:grid-cols-2 gap-6"> -->
     <!-- Revenue Trend -->
-    <div class="bg-white dark:bg-gray-800 rounded-xl shadow border border-gray-200 dark:border-gray-700 p-6">
+    <!-- <div class="bg-white dark:bg-gray-800 rounded-xl shadow border border-gray-200 dark:border-gray-700 p-6">
       <h3 class="text-lg font-semibold mb-4 text-gray-900 dark:text-white">Revenue Trend</h3>
       <canvas id="revenueChart" height="280"></canvas>
-    </div>
+    </div> -->
 
     <!-- Top Brands / Categories -->
-    <div class="bg-white dark:bg-gray-800 rounded-xl shadow border border-gray-200 dark:border-gray-700 p-6">
-      <h3 class="text-lg font-semibold mb-4 text-gray-900 dark:text-white">Top Selling Brands</h3>
-      <canvas id="brandsChart" height="280"></canvas>
+    <!-- <div class="bg-white dark:bg-gray-800 rounded-xl shadow border border-gray-200 dark:border-gray-700 p-6">
+      <h3 class="text-lg font-semibold mb-4 text-gray-900 dark:text-white">Top Selling Categories</h3>
+      <canvas id="categoriesChart" height="280"></canvas>
     </div>
-  </div>
+  </div> -->
 
   <!-- Quick Actions -->
   <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
@@ -139,5 +140,5 @@
 
 </div>
 
-<script src="{% static 'admin/js/dashboard.js' %}"></script>
+<script src="{% static 'admin/js/dashboard.js' %}?v=3"></script>
 {% endblock %}
