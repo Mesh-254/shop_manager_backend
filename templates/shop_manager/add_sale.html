@@ -2,7 +2,6 @@
 
 <!doctype html>
 <html lang="en" class="h-full bg-gray-50">
-
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -54,7 +53,9 @@
       </div>
 
       <!-- Main Form -->
-      <div class="flex-grow flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
+      <div
+        class="flex-grow flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8"
+      >
         <div class="max-w-6xl w-full bg-white p-10 rounded-xl shadow-lg">
           <form id="saleForm" class="space-y-10">
             {% csrf_token %}
@@ -91,7 +92,7 @@
                   >
                     <option value="">-- Select status --</option>
                     <option value="Paid">Paid</option>
-                    <option value="Pending">">Pending</option>
+                    <option value="Pending">Pending</option>
                     <option value="Cancelled">Cancelled</option>
                   </select>
                 </div>
@@ -134,9 +135,7 @@
             <!-- Sale Items -->
             <div>
               <div class="flex justify-between items-center mb-6">
-                <h2 class="text-2xl font-semibold text-gray-800">
-                  Sale Items
-                </h2>
+                <h2 class="text-2xl font-semibold text-gray-800">Sale Items</h2>
                 <button
                   type="button"
                   id="addItemBtn"
@@ -158,11 +157,21 @@
                       <th class="px-6 py-4"></th>
                     </tr>
                   </thead>
-                  <tbody id="itemsBody" class="divide-y divide-gray-200"></tbody>
+                  <tbody
+                    id="itemsBody"
+                    class="divide-y divide-gray-200"
+                  ></tbody>
                   <tfoot class="bg-gray-50 font-bold text-lg">
                     <tr>
-                      <td colspan="4" class="px-6 py-4 text-right">Grand Total (KES):</td>
-                      <td id="grandTotal" class="px-6 py-4 text-right text-success">0.00</td>
+                      <td colspan="4" class="px-6 py-4 text-right">
+                        Grand Total (KES):
+                      </td>
+                      <td
+                        id="grandTotal"
+                        class="px-6 py-4 text-right text-success"
+                      >
+                        0.00
+                      </td>
                       <td></td>
                     </tr>
                   </tfoot>
@@ -183,174 +192,215 @@
       </div>
     </div>
 
+    <!-- Product Data (safe JSON) -->
+    <script id="products-data" type="application/json">
+      {{ products_json|safe }}
+    </script>
+
     <script>
-      // Product data passed from view
-      window.productOptions = {{ products|safe }}.map(p => ({
+      // Load product data safely
+      const productsDataElement = document.getElementById("products-data");
+      const productsData = productsDataElement
+        ? JSON.parse(productsDataElement.textContent)
+        : [];
+      window.productOptions = productsData.map((p) => ({
         id: p.id,
-        text: `${p.name} (Stock: ${p.stock_qty || 0})`,
+        text: `${p.name} (Stock: ${p.stock_qty ?? 0})`,
         price: parseFloat(p.selling_price) || 0,
-        stock: parseInt(p.stock_qty) || 0
+        stock: parseInt(p.stock_qty) || 0,
       }));
 
-      // Row counter
       let rowCounter = 0;
 
-      function addItemRow() {
-        rowCounter++;
-        const row = document.createElement('tr');
-        row.innerHTML = `
-          <td class="px-6 py-4 text-gray-600">${rowCounter}</td>
-          <td class="px-6 py-4">
-            <select class="product-select select2 w-full h-11" data-index="${rowCounter}" required></select>
-          </td>
-          <td class="px-6 py-4">
-            <input type="number" min="1" class="quantity w-full text-right rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary h-11 px-3 border" oninput="calculateRow(this)" required />
-          </td>
-          <td class="px-6 py-4">
-            <input type="number" step="0.01" min="0" class="unit219-price w-full text-right rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary h-11 px-3 border" oninput="calculateRow(this)" required />
-          </td>
-          <td class="px-6 py-4 text-right item-total font-medium">0.00</td>
-          <td class="px-6 py-4 text-center">
-            <button type="button" onclick="this.closest('tr').remove(); renumberRows(); calculateTotals()" class="text-red-600 hover:text-red-900 font-medium">Remove</button>
-          </td>
-        `;
-        document.getElementById('itemsBody').appendChild(row);
+      function calculateRowTotal(row) {
+        const quantityInput = row.querySelector(".quantity");
+        const unitPriceInput = row.querySelector(".unit-price");
+        const totalCell = row.querySelector(".item-total");
 
-        // Initialize Select2
-        $(row).find('.product-select').select2({
-          data: window.productOptions,
-          placeholder: "Type to search product...",
-          allowClear: true,
-          width: '100%'
-        }).on('select2:select', function (e) {
-          const data = e.params.data;
-          const row = this.closest('tr');
-          row.querySelector('.unit-price').value = data.price.toFixed(2);
-          row.querySelector('.quantity').max = data.stock;
-          calculateRow(row.querySelector('.quantity'));
-        }).on('select2:clear', function () {
-          const row = this.closest('tr');
-          row.querySelector('.unit-price').value = '';
-          row.querySelector('.quantity').value = '';
-          row.querySelector('.quantity').removeAttribute('max');
-          calculateRow(row.querySelector('.quantity'));
-        });
-      }
+        if (!quantityInput || !unitPriceInput || !totalCell) return 0;
 
-      function renumberRows() {
-        rowCounter = 0;
-        document.querySelectorAll('#itemsBody tr').forEach(row => {
-          rowCounter++;
-          row.querySelector('td:first-child').textContent = rowCounter;
-        });
-      }
-
-      function calculateRow(input) {
-        const row = input.closest('tr');
-        const qty = parseFloat(row.querySelector('.quantity').value) || 0;
-        const price = parseFloat(row.querySelector('.unit-price').value) || 0;
+        const qty = parseFloat(quantityInput.value) || 0;
+        const price = parseFloat(unitPriceInput.value) || 0;
         const total = qty * price;
-        row.querySelector('.item-total').textContent = total.toFixed(2);
-
-        // Visual warning if quantity > available stock
-        const select = row.querySelector('.product-select');
-        if (select && select.value) {
-          const selected = window.productOptions.find(opt => opt.id === select.value);
-          if (selected && qty > selected.stock) {
-            row.querySelector('.quantity').style.borderColor = '#dc2626';
-            row.querySelector('.quantity').style.backgroundColor = '#fee2e2';
-          } else {
-            row.querySelector('.quantity').style.borderColor = '';
-            row.querySelector('.quantity').style.backgroundColor = '';
-          }
-        }
-
-        calculateTotals();
+        totalCell.textContent = total.toFixed(2);
+        return total;
       }
 
       function calculateTotals() {
         let subtotal = 0;
-        document.querySelectorAll('#itemsBody tr').forEach(row => {
-          subtotal += parseFloat(row.querySelector('.item-total').textContent) || 0;
+        document.querySelectorAll("#itemsBody tr").forEach((row) => {
+          subtotal += calculateRowTotal(row);
         });
-        const discount = parseFloat(document.getElementById('discount').value) || 0;
+        const discount =
+          parseFloat(document.getElementById("discount").value) || 0;
         const grand = subtotal - discount;
-        document.getElementById('grandTotal').textContent = grand.toFixed(2);
+        document.getElementById("grandTotal").textContent = grand.toFixed(2);
       }
 
-      // Add initial row
-      document.getElementById('addItemBtn').addEventListener('click', addItemRow);
+      function addItemRow() {
+        rowCounter++;
+        const tbody = document.getElementById("itemsBody");
+        const row = document.createElement("tr");
+        row.dataset.rowId = rowCounter;
+
+        row.innerHTML = `
+            <td class="px-4 py-3 text-center">
+              <button type="button" class="removeRow text-red-600 hover:text-red-800 font-bold text-xl">&times;</button>
+            </td>
+            <td class="px-4 py-3">
+              <select class="product-select w-full h-11 px-3 border rounded-md" required></select>
+            </td>
+            <td class="px-4 py-3">
+              <input type="number" class="quantity w-full h-11 px-3 border rounded-md" min="1" value="1" required>
+            </td>
+            <td class="px-4 py-3">
+              <input type="number" class="unit-price w-full h-11 px-3 border rounded-md" step="0.01" min="0" required>
+            </td>
+            <td class="px-4 py-3 text-right item-total font-medium">0.00</td>
+          `;
+
+        tbody.appendChild(row);
+
+        // Initialize Select2
+        const select = row.querySelector(".product-select");
+        $(select).select2({
+          data: window.productOptions,
+          placeholder: "Search for a product...",
+          allowClear: true,
+          width: "100%",
+        });
+
+        // On product select: auto-fill price
+        $(select).on("change", function () {
+          const selected = window.productOptions.find(
+            (opt) => opt.id === this.value,
+          );
+          const priceInput = row.querySelector(".unit-price");
+          if (selected && priceInput) {
+            priceInput.value = selected.price.toFixed(2);
+          } else if (priceInput) {
+            priceInput.value = "";
+          }
+          calculateRowTotal(row);
+          calculateTotals();
+        });
+
+        // Quantity or price change
+        row.querySelectorAll(".quantity, .unit-price").forEach((input) => {
+          input.addEventListener("input", () => {
+            calculateRowTotal(row);
+            calculateTotals();
+          });
+        });
+
+        // Remove row
+        row.querySelector(".removeRow").addEventListener("click", () => {
+          $(select).select2("destroy");
+          row.remove();
+          calculateTotals();
+        });
+
+        calculateTotals();
+      }
+
+      // Discount change
+      document
+        .getElementById("discount")
+        .addEventListener("input", calculateTotals);
+
+      // Add first row on load
+      document
+        .getElementById("addItemBtn")
+        .addEventListener("click", addItemRow);
       addItemRow();
 
-      // Recalculate when discount changes
-      document.getElementById('discount').addEventListener('input', calculateTotals);
-
       // Form Submit
-      document.getElementById('saleForm').addEventListener('submit', async (e) => {
-        e.preventDefault();
+      document
+        .getElementById("saleForm")
+        .addEventListener("submit", async (e) => {
+          e.preventDefault();
 
-        const items = [];
-        let hasError = false;
+          const items = [];
+          let hasError = false;
 
-        document.querySelectorAll('#itemsBody tr').forEach(row => {
-          const productSelect = row.querySelector('.product-select');
-          const product = productSelect.value;
-          const quantity = parseInt(row.querySelector('.quantity').value);
-          const unit_price = parseFloat(row.querySelector('.unit-price').value);
+          document.querySelectorAll("#itemsBody tr").forEach((row) => {
+            const productSelect = row.querySelector(".product-select");
+            const quantityInput = row.querySelector(".quantity");
+            const unitPriceInput = row.querySelector(".unit-price");
 
-          if (product && quantity > 0 && unit_price > 0) {
-            const selectedOption = window.productOptions.find(opt => opt.id === product);
-            if (quantity > selectedOption.stock) {
-              alert(`Quantity for "${selectedOption.text}" exceeds available stock (${selectedOption.stock}).`);
-              hasError = true;
+            if (!productSelect || !quantityInput || !unitPriceInput) {
+              console.warn("Skipping malformed row");
               return;
             }
 
-            items.push({
-              product: product,
-              quantity: quantity,
-              unit_selling_price: unit_price
-            });
-          }
-        });
+            const product = productSelect.value.trim();
+            const quantity = parseInt(quantityInput.value) || 0;
+            const unit_price = parseFloat(unitPriceInput.value) || 0;
 
-        if (hasError) return;
+            if (product && quantity > 0 && unit_price > 0) {
+              const selectedOption = window.productOptions.find(
+                (opt) => opt.id === product,
+              );
+              if (!selectedOption) {
+                alert("Product not found in available options.");
+                hasError = true;
+                return;
+              }
 
-        if (items.length === 0) {
-          alert('Please add at least one item.');
-          return;
-        }
+              if (quantity > selectedOption.stock) {
+                alert(
+                  `Quantity for "${selectedOption.text}" exceeds available stock (${selectedOption.stock}).`,
+                );
+                hasError = true;
+                return;
+              }
 
-        const formData = {
-          sale_date: document.getElementById('sale_date').value,
-          payment_status: document.getElementById('payment_status').value,
-          payment_method: document.getElementById('payment_method').value,
-          discount: parseFloat(document.getElementById('discount').value) || 0,
-          items: items
-        };
-
-        try {
-          const response = await fetch('{{ api_url }}', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'X-CSRFToken': '{{ csrf_token }}',
-            },
-            credentials: 'include',
-            body: JSON.stringify(formData)
+              items.push({
+                product: product,
+                quantity: quantity,
+                unit_selling_price: unit_price,
+              });
+            }
           });
 
-          if (response.ok) {
-            alert('Sale created successfully!');
-            window.location.href = '{% url "admin:shop_manager_sale_changelist" %}';
-          } else {
-            const error = await response.json();
-            alert('Error: ' + JSON.stringify(error));
+          if (hasError) return;
+          if (items.length === 0) {
+            alert("Please add at least one item.");
+            return;
           }
-        } catch (err) {
-          alert('Network error: ' + err.message);
-        }
-      });
+
+          const formData = {
+            sale_date: document.getElementById("sale_date").value,
+            payment_status: document.getElementById("payment_status").value,
+            payment_method: document.getElementById("payment_method").value,
+            discount:
+              parseFloat(document.getElementById("discount").value) || 0,
+            items: items,
+          };
+
+          try {
+            const response = await fetch("{{ api_url }}", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "X-CSRFToken": "{{ csrf_token }}",
+              },
+              credentials: "include",
+              body: JSON.stringify(formData),
+            });
+
+            if (response.ok) {
+              alert("Sale created successfully!");
+              window.location.href =
+                '{% url "admin:shop_manager_sale_changelist" %}';
+            } else {
+              const error = await response.json();
+              alert("Error: " + JSON.stringify(error));
+            }
+          } catch (err) {
+            alert("Network error: " + err.message);
+          }
+        });
     </script>
   </body>
 </html>
