@@ -717,10 +717,10 @@ class SaleItem(models.Model):
     product = models.ForeignKey(Product, on_delete=models.CASCADE, db_index=True)
     quantity = models.PositiveIntegerField()
     unit_cost_price = models.DecimalField(
-        max_digits=10, decimal_places=2, blank=True
+        max_digits=10, decimal_places=2, help_text="Snapshot of product's average_cost_price at time of sale"
     )  # frozen at sale time
     unit_selling_price = models.DecimalField(
-        max_digits=10, decimal_places=2, blank=True
+        max_digits=10, decimal_places=2, help_text="Snapshot of selling price at time of sale (allows per-item overrides)"
     )  # frozen at sale time
 
     def save(self, *args, **kwargs):
