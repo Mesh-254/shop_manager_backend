@@ -12,7 +12,8 @@ from django import forms
 from .models import Purchase, PurchaseItem
 from django.db import transaction
 from django.db.models import F
-
+import json
+from decimal import Decimal
 
 
 @staff_member_required
@@ -129,20 +130,26 @@ class SaleItemForm(ModelForm):
         fields = ['product', 'quantity', 'unit_selling_price']
 
 @staff_member_required
+@permission_classes([IsAuthenticated, IsCashierOrHigher])
 def add_sale_view(request):
     if request.method == "GET":
-        products = Product.objects.select_related('stock').values(
-            'id', 'name', 'selling_price', stock_qty=F('stock__quantity')
+        products_qs = Product.objects.select_related('stock').annotate(
+            stock_qty=F('stock__quantity')
+        ).values(
+            'id', 'name', 'selling_price', 'stock_qty'
         ).order_by('name')
+
+        products_list = list(products_qs)
 
         context = {
             "api_url": "/api/shopmanager/sales/",
-            "products": list(products),
+            "products_json": json.dumps(products_list, default=str),  # Safe JSON string
         }
         return render(request, "shop_manager/add_sale.html", context)
     return redirect("admin:shop_manager_sale_changelist")
 
 @staff_member_required
+@permission_classes([IsAuthenticated, IsCashierOrHigher])
 def edit_sale_view(request, sale_id):
     sale = get_object_or_404(Sale, id=sale_id)
     if request.user.role == UserRole.SHOP_ADMIN and sale.shop != request.user.shop:
@@ -171,6 +178,7 @@ def edit_sale_view(request, sale_id):
         'form': form, 'formset': formset, 'sale': sale,
     })
 
+
 @staff_member_required
 def detail_sale_view(request, sale_id):
     sale = get_object_or_404(
@@ -180,4 +188,22 @@ def detail_sale_view(request, sale_id):
     if request.user.role == UserRole.SHOP_ADMIN and sale.shop != request.user.shop:
         return redirect("admin:shop_manager_sale_changelist")
 
-    return render(request, "shop_manager/detail_sale.html", {"sale": sale})
+    # Pre-compute subtotal and current unit cost for each item
+    enriched_items = []
+    for item in sale.items.all():
+        current_cost = item.product.average_cost_price or Decimal('0.00')
+        subtotal = item.unit_selling_price * Decimal(item.quantity)
+
+        enriched_items.append({
+            'product_name': item.product.name,
+            'quantity': item.quantity,
+            'current_unit_cost': current_cost,
+            'unit_selling_price': item.unit_selling_price,
+            'subtotal': subtotal,
+        })
+
+    context = {
+        'sale': sale,
+        'enriched_items': enriched_items,
+    }
+    return render(request, "shop_manager/detail_sale.html", context)
