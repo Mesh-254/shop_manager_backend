@@ -9,7 +9,6 @@ from decimal import Decimal
 from django.contrib.auth import get_user_model
 
 
-
 User = get_user_model()
 
 
@@ -483,8 +482,7 @@ class PurchaseItemSerializer(serializers.HyperlinkedModelSerializer):
     )
 
     brand = serializers.PrimaryKeyRelatedField(  # Explicitly add to use PK (accepts ID)
-        queryset=Brand.objects.all(),
-        allow_null=True
+        queryset=Brand.objects.all(), allow_null=True
     )
 
     total_cost = serializers.SerializerMethodField(read_only=True)
@@ -510,9 +508,9 @@ class PurchaseItemSerializer(serializers.HyperlinkedModelSerializer):
         )
 
     def validate(self, data):
-        if data['quantity'] <= 0:
+        if data["quantity"] <= 0:
             raise serializers.ValidationError("Quantity must be greater than 0")
-        if data.get('unit_cost_price', 0) < 0:
+        if data.get("unit_cost_price", 0) < 0:
             raise serializers.ValidationError("Unit cost cannot be negative")
         return data
 
@@ -521,15 +519,14 @@ class PurchaseSerializer(serializers.HyperlinkedModelSerializer):
 
     shop = serializers.PrimaryKeyRelatedField(  # Change to PK (accepts ID)
         queryset=Shop.objects.all(),
-        required=False  # Make optional; view will auto-set for ShopAdmins
+        required=False,  # Make optional; view will auto-set for ShopAdmins
     )
     total_amount = serializers.DecimalField(
         max_digits=14, decimal_places=2, read_only=True
     )
 
     supplier = serializers.PrimaryKeyRelatedField(  # Change to PK (accepts ID)
-        queryset=Supplier.objects.all(),
-        allow_null=True
+        queryset=Supplier.objects.all(), allow_null=True
     )
 
     created_by = serializers.HiddenField(default=serializers.CurrentUserDefault())
@@ -559,13 +556,13 @@ class PurchaseSerializer(serializers.HyperlinkedModelSerializer):
 
     @transaction.atomic
     def create(self, validated_data):
-        items_data = validated_data.pop('items')
-        request = self.context['request']
+        items_data = validated_data.pop("items")
+        request = self.context["request"]
 
         # Auto-set created_by and shop
-        validated_data['created_by'] = request.user
+        validated_data["created_by"] = request.user
         if request.user.role == "ShopAdmin":
-            validated_data['shop'] = request.user.shop
+            validated_data["shop"] = request.user.shop
 
         purchase = Purchase.objects.create(**validated_data)
 
@@ -581,10 +578,11 @@ class PurchaseSerializer(serializers.HyperlinkedModelSerializer):
 
 
 class SaleItemSerializer(serializers.HyperlinkedModelSerializer):
-    product = serializers.HyperlinkedRelatedField(
-        view_name="product-detail", queryset=Product.objects.all()
-    )
+    product = serializers.PrimaryKeyRelatedField(queryset=Product.objects.all())
     sale = serializers.HyperlinkedRelatedField(view_name="sale-detail", read_only=True)
+    unit_cost_price = serializers.DecimalField(
+        max_digits=14, decimal_places=2, read_only=True
+    )
 
     class Meta:
         model = SaleItem
@@ -604,8 +602,8 @@ class SaleSerializer(serializers.HyperlinkedModelSerializer):
     total_amount = serializers.DecimalField(
         max_digits=12, decimal_places=2, read_only=True
     )
-    shop = serializers.HyperlinkedRelatedField(
-        view_name="shop-detail", queryset=Shop.objects.all()
+    shop = serializers.PrimaryKeyRelatedField(
+        queryset=Shop.objects.all(), required=False, allow_null=True
     )
     sold_by = serializers.HiddenField(default=serializers.CurrentUserDefault())
 
@@ -627,10 +625,18 @@ class SaleSerializer(serializers.HyperlinkedModelSerializer):
     @transaction.atomic
     def create(self, validated_data):
         items_data = validated_data.pop("items")
+        request = self.context['request']
+
+        validated_data['sold_by'] = request.user
+        if request.user.role == "ShopAdmin" and request.user.shop:
+            validated_data['shop'] = request.user.shop
+
         sale = Sale.objects.create(**validated_data, total_amount=Decimal('0.00'))
 
         for item_data in items_data:
+            product = item_data['product']
+            item_data['unit_cost_price'] = product.average_cost_price or Decimal('0.00')  # <-- Snapshot average
             SaleItem.objects.create(sale=sale, **item_data)
 
-        recalculate_sale_total(sale)  # ensure correct total
+        recalculate_sale_total(sale)
         return sale
