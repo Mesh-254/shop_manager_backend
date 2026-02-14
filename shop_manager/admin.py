@@ -25,6 +25,7 @@ from .models import (
 )
 from accounts.models import User, UserRole
 from django.utils.html import format_html
+from unfold.decorators import display
 
 
 # =============================================================================
@@ -520,21 +521,48 @@ class StockAdmin(ProductRelatedScopedAdmin):
     get_shop.short_description = "Shop"
     get_shop.admin_order_field = "product__shop"
 
-
 @admin.register(Sale)
 class SaleAdmin(ShopScopedAdmin):
     list_display = (
-        "id",
-        "shop",
-        "total_amount",
-        "payment_status",
+        "id_link",          # Custom ID column (links to details)
         "sale_date",
         "sold_by",
+        "total_amount",
+        "payment_status",
+        "payment_method",
+        "discount",
+        "update_button",    # New Update button column
     )
-    search_fields = ("id",)
-    list_filter = ("payment_status", "shop", "sale_date")
-    inlines = [SaleItemInline]
+    list_filter = ("sale_date", "payment_status", "payment_method", "shop")
+    search_fields = ("id", "sold_by__username")
+    date_hierarchy = "sale_date"
+    readonly_fields = ("total_amount",)  # Optional: prevent accidental edit
 
+    # Disable default edit links (we're using custom ones)
+    list_display_links = None
+
+    @display(description="ID", ordering="id")
+    def id_link(self, obj):
+        if not obj.pk:
+            return "-"
+        url = reverse("detail_sale", kwargs={"sale_id": obj.pk})
+        return format_html(
+            '<a href="{}" class="text-primary font-bold hover:underline">{}</a>',
+            url,
+            obj.id,
+        )
+    id_link.short_description = "ID"
+
+    @display(description="Actions")
+    def update_button(self, obj):
+        if not obj.pk:
+            return "-"
+        url = reverse("edit_sale", kwargs={"sale_id": obj.pk})
+        return format_html(
+            '<a href="{}" class="inline-block px-4 py-2 bg-success text-white font-medium rounded hover:bg-green-700 transition shadow">Update</a>',
+            url,
+        )
+    update_button.short_description = "Actions"
 
 @admin.register(Returns)
 class ReturnsAdmin(ShopScopedAdmin):
