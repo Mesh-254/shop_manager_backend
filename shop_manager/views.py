@@ -514,6 +514,8 @@ class PurchaseItemViewSet(viewsets.ModelViewSet):
 class SaleViewSet(viewsets.ModelViewSet):
     queryset = Sale.objects.all()
     serializer_class = SaleSerializer
+    authentication_classes = [SessionAuthentication]
+    permission_classes = [IsAuthenticated, IsCashierOrHigher]
 
     def create(self, request, *args, **kwargs):
         """
@@ -534,7 +536,7 @@ class SaleViewSet(viewsets.ModelViewSet):
 class SaleItemViewSet(viewsets.ModelViewSet):
     queryset = SaleItem.objects.select_related("sale", "product")
     serializer_class = SaleItemSerializer
-    permission_classes = [IsCashierOrHigher & IsInSameShop]
+    permission_classes = [IsAuthenticated, IsCashierOrHigher]
 
     def perform_create(self, serializer):
         item = serializer.save()
