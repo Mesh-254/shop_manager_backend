@@ -48,6 +48,7 @@ def send_password_reset_email(self, user_email: str, reset_url: str):
     message = (
         f"Hello,\n\n"
         f"You requested a password reset. Click the link below to set a new password:\n\n"
+        f"Reset Link Expires in 60 minutes\n\n"
         f"{reset_url}\n\n"
         f"If you did not request this, please ignore this email.\n\n"
         f"Thank you,\nShop Manager Team"
