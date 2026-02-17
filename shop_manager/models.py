@@ -534,8 +534,8 @@ class Purchase(models.Model):
         choices=[
             ("Cash", "Cash"),
             ("Card", "Card"),
-            ("Mobile Money", "Mobile Money"),
-            ("Credit", "Credit"),
+            ("M-Pesa", "M-Pesa"),
+            ("Bank Transfer", "Bank Transfer"),
         ],
         help_text="The payment method used for the purchase.",
     )
@@ -669,14 +669,14 @@ class Sale(models.Model):
         choices=[
             ("Cash", "Cash"),
             ("Card", "Card"),
-            ("Mobile Money", "Mobile Money"),
-            ("Credit", "Credit"),
+            ("M-Pesa", "M-Pesa"),
+            ("Bank Transfer", "Bank Transfer"),
         ],
         help_text="The payment method used for the sale.",
     )
     payment_status = models.CharField(
         max_length=20,
-        choices=[("Paid", "Paid"), ("Unpaid", "Unpaid"), ("Partial", "Partial")],
+        choices=[("Paid", "Paid"), ("Unpaid", "Unpaid"), ("Partial", "Partial"), ("Pending", "Pending")],
         help_text="The payment status of the purchase.",
         db_index=True,
     )
