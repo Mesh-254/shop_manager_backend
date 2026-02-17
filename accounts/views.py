@@ -1,3 +1,5 @@
+from django.utils import timezone
+from datetime import timedelta
 from rest_framework import viewsets
 from accounts.serializers import UserSerializer
 from accounts.models import User
@@ -20,7 +22,7 @@ from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework.exceptions import ValidationError, PermissionDenied
 from rest_framework.permissions import IsAuthenticated
 from accounts.permissions import CanManageShopUsers, IsSuperAdmin
-from accounts.tasks import send_verification_email
+from accounts.tasks import send_verification_email,  send_password_reset_email
 
 
 logger = logging.getLogger(__name__)
@@ -144,12 +146,8 @@ class RegisterView(APIView):
             user.shop = shop
             user.save()
 
-            # Send verification email
-            verification_url = (
-                f"{settings.FRONTEND_URL.rstrip('/')}/verify-email/{verification_token}"
-            )
-            
-            send_verification_email.delay(user.email, verification_url)
+            # Send verification email (pass the raw token — the task will build the full URL)
+            send_verification_email.delay(user.email, verification_token)
 
             return Response(
                 {
@@ -217,7 +215,6 @@ class VerifyEmailView(APIView):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
-
 class PasswordResetRequestView(APIView):
     permission_classes = [AllowAny]
 
@@ -226,40 +223,47 @@ class PasswordResetRequestView(APIView):
         if not email:
             return Response({"detail": "Email is required."}, status=400)
 
-        try:
-            user = User.objects.get(email=email.lower())
-            reset_token = str(uuid.uuid4())
-            user.verification_token = reset_token  # Reuse field for reset
-            user.save()
+        email = email.lower().strip()
+        user = User.objects.filter(email=email).first()
 
-            reset_url = f"{settings.FRONTEND_URL}/reset-password/{reset_token}/"
-            send_mail(
-                "Password Reset for SHOP Manager",
-                f"Click to reset password: {reset_url}",
-                settings.DEFAULT_FROM_EMAIL,
-                [user.email],
-            )
-            return Response({"message": "Password reset email sent."})
-        except User.DoesNotExist:
-            return Response({"detail": "No user found."}, status=404)
+        if user:
+            reset_token = str(uuid.uuid4())
+            user.reset_token = reset_token
+            user.reset_token_expires = timezone.now() + timedelta(hours=1)
+            user.save(update_fields=["reset_token", "reset_token_expires"])
+
+            reset_url = f"{settings.FRONTEND_URL.rstrip('/')}/reset-password/{reset_token}"
+            send_password_reset_email.delay(user.email, reset_url)
+
+        # Always return same message to prevent email enumeration
+        return Response({
+            "message": "If an account with that email exists, a password reset link has been sent."
+        }, status=200)
 
 
 class PasswordResetConfirmView(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request, token):
-        new_password = request.data.get("password")
-        if not new_password:
-            return Response({"detail": "New password required."}, status=400)
+        password = request.data.get("password")
+        if not password:
+            return Response({"detail": "Password is required."}, status=400)
 
         try:
-            user = User.objects.get(verification_token=token)
-            user.set_password(new_password)
-            user.verification_token = None
+            user = User.objects.get(reset_token=token)
+            
+            if timezone.now() > user.reset_token_expires:
+                return Response({"detail": "Reset link has expired."}, status=400)
+
+            user.set_password(password)
+            user.reset_token = None
+            user.reset_token_expires = None
             user.save()
-            return Response({"message": "Password reset successful."})
+
+            return Response({"message": "Password reset successful."}, status=200)
+
         except User.DoesNotExist:
-            return Response({"detail": "Invalid token."}, status=400)
+            return Response({"detail": "Invalid reset link."}, status=400)
 
 
 class AdminPasswordResetView(APIView):  # Admin-only override
