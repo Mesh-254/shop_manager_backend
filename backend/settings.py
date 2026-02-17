@@ -32,7 +32,7 @@ SECRET_KEY = os.getenv("SECRET_KEY")
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.getenv("DEBUG")
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = os.getenv("ALLOWED_HOSTS", "localhost,127.0.0.1").split(",")
 
 
 # Application definition
@@ -84,12 +84,9 @@ MIDDLEWARE = [
 ROOT_URLCONF = "backend.urls"
 
 # CORS_ALLOWED_ORIGINS
-CORS_ALLOWED_ORIGINS = [
-    "http://localhost:5173",
-    "http://127.0.0.1:8000",
-]
+CORS_ALLOWED_ORIGINS = os.getenv("CORS_ALLOWED_ORIGINS", "").split(",")
 
-CORS_ALLOW_ALL_ORIGINS = True
+CORS_ALLOW_ALL_ORIGINS = os.getenv("CORS_ALLOW_ALL_ORIGINS", "False").lower() == "true"
 
 TEMPLATES = [
     {
@@ -253,7 +250,7 @@ SOCIALACCOUNT_PROVIDERS = {
 
 # Redirect after social login
 LOGIN_REDIRECT_URL = "/"  # Frontend will handle role redirect
-ACCOUNT_LOGOUT_REDIRECT_URL = "http://localhost:5173/"
+ACCOUNT_LOGOUT_REDIRECT_URL = os.getenv("ACCOUNT_LOGOUT_REDIRECT_URL", "http://localhost:5173/")
 
 
 # JWT Configuration
