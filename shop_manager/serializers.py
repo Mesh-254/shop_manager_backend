@@ -603,7 +603,7 @@ class SaleSerializer(serializers.HyperlinkedModelSerializer):
         max_digits=12, decimal_places=2, read_only=True
     )
     shop = serializers.PrimaryKeyRelatedField(
-        queryset=Shop.objects.all(), required=False, allow_null=True
+        queryset=Shop.objects.all(), required=False
     )
     sold_by = serializers.HiddenField(default=serializers.CurrentUserDefault())
 
@@ -628,8 +628,10 @@ class SaleSerializer(serializers.HyperlinkedModelSerializer):
         request = self.context['request']
 
         validated_data['sold_by'] = request.user
-        if request.user.role == "ShopAdmin" and request.user.shop:
+        if hasattr(request.user, 'shop') and request.user.shop:
             validated_data['shop'] = request.user.shop
+        else:
+            raise ValidationError("User must be associated with a shop to create a sale.")
 
         sale = Sale.objects.create(**validated_data, total_amount=Decimal('0.00'))
 

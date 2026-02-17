@@ -5,6 +5,7 @@ from unfold.admin import ModelAdmin, TabularInline, StackedInline
 from unfold.contrib.inlines.admin import TabularInline as UnfoldTabularInline
 from django.contrib.admin import SimpleListFilter
 from django.db.models import Sum, F
+from django.core.exceptions import FieldDoesNotExist
 from .models import (
     Brand,
     SubscriptionPlan,
@@ -70,15 +71,20 @@ class ShopScopedAdmin(ModelAdmin):
         qs = super().get_queryset(request)
 
         if request.user.role == UserRole.SUPER_ADMIN:
-            return qs
+            return qs.all()
 
         if request.user.role == UserRole.SHOP_ADMIN and request.user.shop:
-            # Only filter if the model actually has a 'shop' field
-            if hasattr(self.model, "shop") and self.model._meta.get_field("shop"):
+            try:
+                self.model._meta.get_field("shop")
                 return qs.filter(shop=request.user.shop)
+            except FieldDoesNotExist:
+                # Global model (no shop field) → show all objects
+                return qs.all()
 
+        # No permission (e.g., cashier or no shop assigned)
         return qs.none()
 
+        
     def get_readonly_fields(self, request, obj=None):
         readonly = super().get_readonly_fields(request, obj) or ()
         if request.user.role == UserRole.SHOP_ADMIN and obj:
@@ -456,15 +462,13 @@ class SupplierAdmin(ShopScopedAdmin):
 
 @admin.register(Brand)
 class BrandAdmin(ShopScopedAdmin):
-    list_display = ("name", "country_of_origin", "product_count", "is_active")
+    list_display = ("name", "country_of_origin", "is_active")
     list_filter = ("is_active", "country_of_origin")
     search_fields = ("name",)
     ordering = ("name",)
 
-    def product_count(self, obj):
-        return obj.products.count()
-
-    product_count.short_description = "Products"
+    
+    
 
 
 @admin.register(Product)
