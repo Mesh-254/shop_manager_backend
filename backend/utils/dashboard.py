@@ -17,9 +17,7 @@ import json
 from datetime import timedelta, datetime
 from decimal import Decimal
 
-from django.db.models import (
-    Sum, Count, F, Q, Value, DecimalField, DateField
-)
+from django.db.models import Sum, Count, F, Q, Value, DecimalField, DateField
 from django.db.models.functions import TruncDate, Coalesce
 from django.utils import timezone
 from django.urls import reverse
@@ -27,8 +25,14 @@ from django.contrib import messages
 
 from accounts.models import User, UserRole
 from shop_manager.models import (
-    Shop, Product, Stock, Sale, SaleItem,
-    Purchase, Expense, StockTransaction
+    Shop,
+    Product,
+    Stock,
+    Sale,
+    SaleItem,
+    Purchase,
+    Expense,
+    StockTransaction,
 )
 
 
@@ -78,7 +82,9 @@ def dashboard_callback(request, context=None):
 
     # Early exit if ShopAdmin has no shop assigned
     if user.role == UserRole.SHOP_ADMIN and not user.shop:
-        messages.warning(request, "Your account is not assigned to any shop. Contact support.")
+        messages.warning(
+            request, "Your account is not assigned to any shop. Contact support."
+        )
         return {
             "cards": [],
             "recent_sales": [],
@@ -108,54 +114,80 @@ def dashboard_callback(request, context=None):
     if to_date_str:
         try:
             to_date = datetime.strptime(to_date_str, "%Y-%m-%d").date()
-            to_date += timedelta(days=1)  # Make query inclusive (up to end of selected day)
+            to_date += timedelta(
+                days=1
+            )  # Make query inclusive (up to end of selected day)
         except ValueError:
             to_date = None
 
     # Chart range: custom if provided, else last 30 days
-    chart_start = datetime.combine(from_date, datetime.min.time()) if from_date else thirty_days_ago
-    chart_end = datetime.combine(to_date, datetime.max.time()) if to_date else now  # ← Fixed: no .date()
-        # Filter SaleItem for calculations (most accurate source)
+    chart_start = (
+        datetime.combine(from_date, datetime.min.time())
+        if from_date
+        else thirty_days_ago
+    )
+    chart_end = (
+        datetime.combine(to_date, datetime.max.time()) if to_date else now
+    )  # ← Fixed: no .date()
+    # Filter SaleItem for calculations (most accurate source)
     sale_items_qs = filtered(SaleItem.objects.all())
     if from_date or to_date:
         sale_items_qs = sale_items_qs.filter(
             sale__sale_date__gte=chart_start,
-            sale__sale_date__lt=chart_end if to_date else Q()
+            sale__sale_date__lt=chart_end if to_date else Q(),
         )
 
     # ─── Core Aggregations (All-time unless specified) ───────────────────
     # Revenue & Gross Profit (using SaleItem snapshots)
     profit_agg = sale_items_qs.aggregate(
-        total_revenue=Coalesce(Sum(F("quantity") * F("unit_selling_price")), Decimal("0.00")),
-        total_cogs=Coalesce(Sum(F("quantity") * F("unit_cost_price")), Decimal("0.00"))
+        total_revenue=Coalesce(
+            Sum(F("quantity") * F("unit_selling_price")), Decimal("0.00")
+        ),
+        total_cogs=Coalesce(Sum(F("quantity") * F("unit_cost_price")), Decimal("0.00")),
     )
     total_revenue = profit_agg["total_revenue"]
     total_gross_profit = profit_agg["total_revenue"] - profit_agg["total_cogs"]
-    gross_margin = (total_gross_profit / total_revenue * 100) if total_revenue > 0 else Decimal("0.0")
+    gross_margin = (
+        (total_gross_profit / total_revenue * 100)
+        if total_revenue > 0
+        else Decimal("0.0")
+    )
 
     # This month specifics
-    this_month_items = filtered(SaleItem.objects.filter(sale__sale_date__gte=this_month_start))
+    this_month_items = filtered(
+        SaleItem.objects.filter(sale__sale_date__gte=this_month_start)
+    )
     this_month_agg = this_month_items.aggregate(
         revenue=Coalesce(Sum(F("quantity") * F("unit_selling_price")), Decimal("0.00")),
-        count=Count("sale", distinct=True)
+        count=Count("sale", distinct=True),
     )
     revenue_this_month = this_month_agg["revenue"]
-    sales_this_month_count = filtered(Sale.objects.filter(sale_date__gte=this_month_start)).count()
-    avg_order_value = revenue_this_month / sales_this_month_count if sales_this_month_count > 0 else Decimal('0.00')
+    sales_this_month_count = filtered(
+        Sale.objects.filter(sale_date__gte=this_month_start)
+    ).count()
+    avg_order_value = (
+        revenue_this_month / sales_this_month_count
+        if sales_this_month_count > 0
+        else Decimal("0.00")
+    )
     # Net Profit (last 30 days): Revenue - Expenses
-    expenses_30d = filtered(Expense.objects.filter(date__gte=thirty_days_ago.date())).aggregate(
-        total=Coalesce(Sum("amount"), Decimal("0.00"))
-    )["total"]
+    expenses_30d = filtered(
+        Expense.objects.filter(date__gte=thirty_days_ago.date())
+    ).aggregate(total=Coalesce(Sum("amount"), Decimal("0.00")))["total"]
     net_profit_30d = (revenue_this_month or Decimal("0.00")) - expenses_30d
 
     # Inventory Valuation
     stock_qs = filtered(Stock.objects.select_related("product"))
     inventory_selling = stock_qs.aggregate(
-        value=Coalesce(Sum(F("quantity") * F("product__selling_price")), Decimal("0.00"))
+        value=Coalesce(
+            Sum(F("quantity") * F("product__selling_price")), Decimal("0.00")
+        )
     )["value"]
 
     inventory_cost = stock_qs.aggregate(
-        value=Coalesce(Sum(F("quantity") * F("product__average_cost_price")), Decimal("0.00"))
+        value=Coalesce(
+            Sum(F("quantity") * F("product__average_cost_price")), Decimal("0.00")
+        )
     )["value"]
 
     # Low / Out of Stock
@@ -168,21 +200,27 @@ def dashboard_callback(request, context=None):
 
     # ─── Chart Data: Daily Revenue & Gross Profit Trend ──────────────────
     daily_trend = (
-        filtered(SaleItem.objects.filter(sale__sale_date__gte=chart_start, sale__sale_date__lt=chart_end))
+        filtered(
+            SaleItem.objects.filter(
+                sale__sale_date__gte=chart_start, sale__sale_date__lt=chart_end
+            )
+        )
         .annotate(date=TruncDate("sale__sale_date"))
         .values("date")
         .annotate(
-            revenue=Coalesce(Sum(F("quantity") * F("unit_selling_price")), Decimal("0.00")),
-            cogs=Coalesce(Sum(F("quantity") * F("unit_cost_price")), Decimal("0.00"))
+            revenue=Coalesce(
+                Sum(F("quantity") * F("unit_selling_price")), Decimal("0.00")
+            ),
+            cogs=Coalesce(Sum(F("quantity") * F("unit_cost_price")), Decimal("0.00")),
         )
         .order_by("date")
     )
 
     # Define inclusive end date
     if to_date:
-        end_date = (to_date - timedelta(days=1))  # to_date is already +1 day
+        end_date = to_date - timedelta(days=1)  # to_date is already +1 day
     else:
-        end_date = today # Include today when no custom range
+        end_date = today  # Include today when no custom range
 
     # Fill missing dates for continuous chart
     trend_dates = []
@@ -192,7 +230,9 @@ def dashboard_callback(request, context=None):
     daily_dict = {item["date"]: item for item in daily_trend}
 
     while current_date <= end_date:
-        data = daily_dict.get(current_date, {"revenue": Decimal("0.00"), "cogs": Decimal("0.00")})
+        data = daily_dict.get(
+            current_date, {"revenue": Decimal("0.00"), "cogs": Decimal("0.00")}
+        )
         trend_dates.append(current_date.strftime("%b %d"))  # Nice format: "Feb 12"
         trend_revenue.append(float(data["revenue"]))
         trend_profit.append(float(data["revenue"] - data["cogs"]))
@@ -200,20 +240,36 @@ def dashboard_callback(request, context=None):
 
     # ─── Top 10 Selling Categories by Revenue (chart period) ─────────────────
     top_categories = (
-        filtered(SaleItem.objects.filter(sale__sale_date__gte=chart_start, sale__sale_date__lt=chart_end))
+        filtered(
+            SaleItem.objects.filter(
+                sale__sale_date__gte=chart_start, sale__sale_date__lt=chart_end
+            )
+        )
         .values(category_name=F("product__category__name"))
-        .annotate(revenue=Coalesce(Sum(F("quantity") * F("unit_selling_price")), Decimal("0.00")))
+        .annotate(
+            revenue=Coalesce(
+                Sum(F("quantity") * F("unit_selling_price")), Decimal("0.00")
+            )
+        )
         .order_by("-revenue")[:10]
     )
 
-    category_names = json.dumps([item.get("category_name") or "Uncategorized" for item in top_categories])
+    category_names = json.dumps(
+        [item.get("category_name") or "Uncategorized" for item in top_categories]
+    )
     category_values = json.dumps([float(item["revenue"]) for item in top_categories])
-    
+
     # ─── Recent Activity ─────────────────────────────────────────────────
     recent_sales = (
         filtered(Sale.objects.select_related("sold_by"))
+        .prefetch_related(
+            "items__product",
+            "items__product__category",
+        )
+        .annotate(
+            items_count=Count("items")  # or Count(SaleItem.sale.rel.related_name)
+        )
         .order_by("-sale_date")[:8]
-        .values("id", "sale_date", "total_amount", "payment_status", "sold_by__full_name")
     )
 
     recent_low_stock = (
@@ -224,7 +280,9 @@ def dashboard_callback(request, context=None):
     )
 
     recent_transactions = (
-        filtered(StockTransaction.objects.select_related("stock__product", "created_by"))
+        filtered(
+            StockTransaction.objects.select_related("stock__product", "created_by")
+        )
         .order_by("-created_at")[:10]
         .values(
             "stock__product__name",
@@ -232,7 +290,7 @@ def dashboard_callback(request, context=None):
             "type",
             "reason",
             "created_at",
-            "created_by__full_name"
+            "created_by__full_name",
         )
     )
 
@@ -314,17 +372,17 @@ def dashboard_callback(request, context=None):
         "current_month": now.strftime("%B %Y"),
         "user_role": user.role,
         "is_superadmin": user.role == UserRole.SUPER_ADMIN,
-
         # Chart data
         "chart_dates": json.dumps(trend_dates),
         "chart_revenue": json.dumps(trend_revenue),
         "chart_profit": json.dumps(trend_profit),
         "category_names": json.dumps(category_names),
         "category_values": json.dumps(category_values),
-
         # For header display
         "from_date": from_date_str,
-        "to_date": (to_date - timedelta(days=1)).strftime("%Y-%m-%d") if to_date else None,
+        "to_date": (
+            (to_date - timedelta(days=1)).strftime("%Y-%m-%d") if to_date else None
+        ),
     }
 
     if context is not None:
