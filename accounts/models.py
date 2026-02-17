@@ -93,7 +93,12 @@ class User(AbstractBaseUser, PermissionsMixin):
         related_name='users', null=True, blank=True
     )
 
+    #  Field for email verification token (UUID format)
     verification_token = models.CharField(max_length=36, null=True, blank=True)  # For UUID
+
+    # Fields for password reset functionality
+    reset_token = models.CharField(max_length=36, null=True, blank=True)
+    reset_token_expires = models.DateTimeField(null=True, blank=True)
 
     is_active = models.BooleanField(default=True, db_index=True)
     is_staff = models.BooleanField(default=False)
