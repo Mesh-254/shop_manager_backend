@@ -183,12 +183,12 @@ CELERY_TASK_MAX_RETRIES = 5
 STATIC_URL = "static/"
 
 # Where Django looks for static files during collectstatic
-STATICFILES_DIRS = [
-    BASE_DIR / "static",  # your custom static files
-]
+# STATICFILES_DIRS = [
+#     BASE_DIR / "static",  # your custom static files
+# ]
 
 # Where collectstatic puts files in production
-STATIC_ROOT = BASE_DIR / "staticfiles"
+STATIC_ROOT = '/var/www/shopmanager-static/'
 
 
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
